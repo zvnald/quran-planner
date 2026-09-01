@@ -455,12 +455,16 @@
 
   const state = {
     tab: "memorize",
-    memo: { mode: "duration", years: 3, months: 0, pagesPerWeek: 7 },
+    memo: {
+      mode: "duration", years: 3, months: 0, pagesPerWeek: 7,
+      preMemorized: { enabled: false, mode: "range", fromPage: 1, toPage: 20, count: 20 },
+    },
     review: {
       rangeMode: "pages", fromPage: 1, toPage: 20, fromSurah: 0, toSurah: 5,
       durationValue: 10, durationUnit: "days", restDay: "الجمعة",
       cyclicMode: false, cycleValue: 7, cycleUnit: "days",
       programValue: 1, programUnit: "months",
+      endMode: "duration", calendarType: "gregorian", endDate: null,
     },
   };
 
@@ -476,6 +480,88 @@
     const d = new Date(base);
     d.setDate(d.getDate() + days);
     return d;
+  }
+
+  /* ---------------- Hijri / Gregorian conversion (تقويم تقديري مبني على الحساب الفلكي التقريبي) ---------------- */
+  const HIJRI_MONTHS = ["محرم","صفر","ربيع الأول","ربيع الآخر","جمادى الأولى","جمادى الآخرة","رجب","شعبان","رمضان","شوال","ذو القعدة","ذو الحجة"];
+
+  function gregorianToJDN(y, m, d) {
+    const a = Math.floor((14 - m) / 12);
+    const y2 = y + 4800 - a;
+    const m2 = m + 12 * a - 3;
+    return d + Math.floor((153 * m2 + 2) / 5) + 365 * y2 + Math.floor(y2 / 4) - Math.floor(y2 / 100) + Math.floor(y2 / 400) - 32045;
+  }
+  function jdnToGregorian(jdn) {
+    const a = jdn + 32044;
+    const b = Math.floor((4 * a + 3) / 146097);
+    const c = a - Math.floor((146097 * b) / 4);
+    const d2 = Math.floor((4 * c + 3) / 1461);
+    const e = c - Math.floor((1461 * d2) / 4);
+    const m2 = Math.floor((5 * e + 2) / 153);
+    const day = e - Math.floor((153 * m2 + 2) / 5) + 1;
+    const month = m2 + 3 - 12 * Math.floor(m2 / 10);
+    const year = 100 * b + d2 - 4800 + Math.floor(m2 / 10);
+    return { year, month, day };
+  }
+  function hijriToJDN(y, m, d) {
+    return Math.floor((11 * y + 3) / 30) + 354 * y + 30 * m - Math.floor((m - 1) / 2) + d + 1948440 - 385;
+  }
+  function jdnToHijri(jdn) {
+    let l = jdn - 1948440 + 10632;
+    const n = Math.floor((l - 1) / 10631);
+    l = l - 10631 * n + 354;
+    const j = (Math.floor((10985 - l) / 5316)) * (Math.floor((50 * l) / 17719)) + (Math.floor(l / 5670)) * (Math.floor((43 * l) / 15238));
+    l = l - (Math.floor((30 - j) / 15)) * (Math.floor((17719 * j) / 50)) - (Math.floor(j / 16)) * (Math.floor((15238 * j) / 43)) + 29;
+    const m = Math.floor((24 * l) / 709);
+    const d = l - Math.floor((709 * m) / 24);
+    const y = 30 * n + j - 30;
+    return { year: y, month: m, day: d };
+  }
+  function todayHijriParts() {
+    const t = new Date();
+    return jdnToHijri(gregorianToJDN(t.getFullYear(), t.getMonth() + 1, t.getDate()));
+  }
+  function formatHijriDate(date) {
+    const h = jdnToHijri(gregorianToJDN(date.getFullYear(), date.getMonth() + 1, date.getDate()));
+    return `${h.day} ${HIJRI_MONTHS[h.month - 1]} ${h.year}هـ`;
+  }
+  function formatDualDate(date) {
+    return `${formatDate(date)} م (موافق ${formatHijriDate(date)})`;
+  }
+  // Converts a {year,month,day} triple from one calendar system to the other, keeping the same absolute day.
+  function convertDateParts(fromType, toType, parts) {
+    if (!parts) return null;
+    if (fromType === toType) return parts;
+    const jdn = fromType === "hijri" ? hijriToJDN(parts.year, parts.month, parts.day) : gregorianToJDN(parts.year, parts.month, parts.day);
+    return toType === "hijri" ? jdnToHijri(jdn) : jdnToGregorian(jdn);
+  }
+  function defaultEndDateParts(calendarType) {
+    const d = addDays(new Date(), 30);
+    const g = { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
+    return calendarType === "hijri" ? convertDateParts("gregorian", "hijri", g) : g;
+  }
+  function daysInHijriMonth() { return 30; }
+  function daysInGregorianMonth(year, month) { return new Date(year, month, 0).getDate(); }
+
+  /* ---------------- Pre-memorized pages (الحفظ المسبق) ---------------- */
+  function getPreMemorizedCount(m) {
+    const pm = m.preMemorized;
+    if (!pm || !pm.enabled) return 0;
+    let count;
+    if (pm.mode === "range") {
+      const from = Math.max(1, Math.min(Number(pm.fromPage) || 1, TOTAL_PAGES));
+      const to = Math.max(from, Math.min(Number(pm.toPage) || from, TOTAL_PAGES));
+      count = to - from + 1;
+    } else {
+      count = Math.max(0, Number(pm.count) || 0);
+    }
+    return Math.min(count, TOTAL_PAGES - 1);
+  }
+  function getRemainingStartPage(m) {
+    return Math.min(getPreMemorizedCount(m) + 1, TOTAL_PAGES);
+  }
+  function getRemainingPages(m) {
+    return Math.max(TOTAL_PAGES - getPreMemorizedCount(m), 1);
   }
   function beadsHTML(filled, label) {
     let spans = "";
@@ -493,19 +579,21 @@
 
   /* ---------------- Memorization calculations ---------------- */
   function computeDuration(m) {
+    const remaining = getRemainingPages(m);
     const totalMonths = Math.max(m.years * 12 + Number(m.months || 0), 1);
     const totalDays = totalMonths * 30;
-    const perDay = TOTAL_PAGES / totalDays;
+    const perDay = remaining / totalDays;
     const perWeek = perDay * 7;
     const ajzaPerMonth = (perDay * 30) / 20;
-    return { perDay, perWeek, ajzaPerMonth, finishDate: addDays(startDate, totalDays), totalDays };
+    return { perDay, perWeek, ajzaPerMonth, finishDate: addDays(startDate, totalDays), totalDays, remaining };
   }
   function computePace(m) {
+    const remaining = getRemainingPages(m);
     const perWeek = Math.max(Number(m.pagesPerWeek) || 0.0001, 0.0001);
-    const totalWeeks = TOTAL_PAGES / perWeek;
+    const totalWeeks = remaining / perWeek;
     const totalDays = Math.ceil(totalWeeks * 7);
     const totalYears = totalDays / 365;
-    return { totalWeeks, totalDays, totalYears, finishDate: addDays(startDate, totalDays) };
+    return { totalWeeks, totalDays, totalYears, finishDate: addDays(startDate, totalDays), remaining };
   }
 
   function buildMemoFormHTML(m, prefix) {
@@ -535,12 +623,48 @@
           </div>
         </div>`;
     }
+    const pm = m.preMemorized || { enabled: false, mode: "range", fromPage: 1, toPage: 20, count: 20 };
+    const preMemFieldsHTML = pm.mode === "range" ? `
+        <div class="field-row">
+          <div class="field-group">
+            <span>من صفحة</span>
+            <input type="number" min="1" max="${TOTAL_PAGES}" id="${prefix}memo-premem-from" value="${pm.fromPage}" />
+          </div>
+          <div class="field-group">
+            <span>إلى صفحة</span>
+            <input type="number" min="1" max="${TOTAL_PAGES}" id="${prefix}memo-premem-to" value="${pm.toPage}" />
+          </div>
+        </div>` : `
+        <div class="field-group wide">
+          <input type="number" min="0" max="${TOTAL_PAGES - 1}" id="${prefix}memo-premem-count" value="${pm.count}" />
+          <span>صفحة محفوظة</span>
+        </div>`;
+
+    const preMemCount = getPreMemorizedCount(m);
+    const preMemHTML = `
+      <div class="card form-card">
+        <label class="field-label">هل حفظت جزءاً من القرآن الكريم مسبقاً؟</label>
+        <div class="mode-switch">
+          <button class="mode-btn${!pm.enabled ? " active" : ""}" id="${prefix}memo-premem-off">لا يوجد حفظ سابق</button>
+          <button class="mode-btn${pm.enabled ? " active" : ""}" id="${prefix}memo-premem-on">لديّ حفظ سابق</button>
+        </div>
+        ${pm.enabled ? `
+        <div class="mode-switch" style="margin-top:0.7rem;">
+          <button class="mode-btn${pm.mode === "range" ? " active" : ""}" id="${prefix}memo-premem-mode-range">بنطاق الصفحات</button>
+          <button class="mode-btn${pm.mode === "count" ? " active" : ""}" id="${prefix}memo-premem-mode-count">بعدد الصفحات</button>
+        </div>
+        <div style="margin-top:0.6rem;">${preMemFieldsHTML}</div>
+        <p class="hint">المحفوظ حالياً: ${preMemCount} صفحة — سيبدأ التخطيط من الصفحة ${getRemainingStartPage(m)} حتى ختم الباقي (${getRemainingPages(m)} صفحة).</p>
+        ` : ""}
+      </div>`;
+
     return `
       <div class="mode-switch">
         <button class="mode-btn${m.mode === "duration" ? " active" : ""}" id="${prefix}memo-mode-duration">الحساب بالمدة</button>
         <button class="mode-btn${m.mode === "pace" ? " active" : ""}" id="${prefix}memo-mode-pace">الحساب بعدد الصفحات</button>
       </div>
       ${formHTML}
+      ${preMemHTML}
     `;
   }
 
@@ -553,6 +677,20 @@
       document.getElementById(`${prefix}memo-months`).oninput = (e) => { state.memo.months = Number(e.target.value); onInputChange(); };
     } else {
       document.getElementById(`${prefix}memo-pace`).oninput = (e) => { state.memo.pagesPerWeek = e.target.value; onInputChange(); };
+    }
+
+    if (!m.preMemorized) m.preMemorized = { enabled: false, mode: "range", fromPage: 1, toPage: 20, count: 20 };
+    document.getElementById(`${prefix}memo-premem-off`).onclick = () => { state.memo.preMemorized.enabled = false; onModeChange(); };
+    document.getElementById(`${prefix}memo-premem-on`).onclick = () => { state.memo.preMemorized.enabled = true; onModeChange(); };
+    if (m.preMemorized.enabled) {
+      document.getElementById(`${prefix}memo-premem-mode-range`).onclick = () => { state.memo.preMemorized.mode = "range"; onModeChange(); };
+      document.getElementById(`${prefix}memo-premem-mode-count`).onclick = () => { state.memo.preMemorized.mode = "count"; onModeChange(); };
+      if (m.preMemorized.mode === "range") {
+        document.getElementById(`${prefix}memo-premem-from`).oninput = (e) => { state.memo.preMemorized.fromPage = e.target.value; onInputChange(); };
+        document.getElementById(`${prefix}memo-premem-to`).oninput = (e) => { state.memo.preMemorized.toPage = e.target.value; onInputChange(); };
+      } else {
+        document.getElementById(`${prefix}memo-premem-count`).oninput = (e) => { state.memo.preMemorized.count = e.target.value; onInputChange(); };
+      }
     }
   }
 
@@ -571,7 +709,18 @@
 
   function updateMemoResults() {
     const m = state.memo;
+    const preMemCount = getPreMemorizedCount(m);
+    const hasPreMem = m.preMemorized && m.preMemorized.enabled && preMemCount > 0;
     let html = "";
+
+    if (hasPreMem) {
+      html += `<div class="stats-grid">
+        ${statCardHTML(preMemCount, "صفحة محفوظة مسبقاً")}
+        ${statCardHTML(getRemainingPages(m), "صفحة متبقية للحفظ")}
+        ${statCardHTML(getRemainingStartPage(m), "بداية الخطة من صفحة")}
+      </div>`;
+    }
+
     let filledBeads = 0;
     if (m.mode === "duration") {
       const r = computeDuration(m);
@@ -581,7 +730,7 @@
         ${statCardHTML(r.perWeek.toFixed(1), "صفحة أسبوعياً")}
         ${statCardHTML(r.ajzaPerMonth.toFixed(1), "جزء شهرياً تقريباً")}
       </div>`;
-      html += inspireHTML(`بإذن الله، بناءً على خطتك ستختم حفظ القرآن الكريم بتاريخ ${formatDate(r.finishDate)}`);
+      html += inspireHTML(`بإذن الله، بناءً على خطتك ستختم حفظ ${hasPreMem ? "بقية" : ""} القرآن الكريم بتاريخ ${formatDualDate(r.finishDate)}`);
     } else {
       const r = computePace(m);
       filledBeads = Math.min(TOTAL_AJZA, Math.round(((r.totalWeeks > 0 ? (Number(m.pagesPerWeek) * 30 / 7) : 0) / 20)));
@@ -590,9 +739,12 @@
         ${statCardHTML(r.totalYears.toFixed(2), "سنة تقريباً")}
         ${statCardHTML(Math.ceil(r.totalWeeks), "أسبوعاً")}
       </div>`;
-      html += inspireHTML(`بإذن الله، بناءً على معدلك ستختم حفظ القرآن الكريم بتاريخ ${formatDate(r.finishDate)}`);
+      html += inspireHTML(`بإذن الله، بناءً على معدلك ستختم حفظ ${hasPreMem ? "بقية" : ""} القرآن الكريم بتاريخ ${formatDualDate(r.finishDate)}`);
     }
-    html += beadsHTML(filledBeads, `${filledBeads} من ${TOTAL_AJZA} جزءاً يمكن إنجازها في الشهر تقريباً`);
+    if (hasPreMem) {
+      filledBeads = Math.max(filledBeads, Math.min(TOTAL_AJZA, Math.round((preMemCount * 30) / TOTAL_PAGES)));
+    }
+    html += beadsHTML(filledBeads, `${filledBeads} من ${TOTAL_AJZA} جزءاً${hasPreMem ? " (شاملاً المحفوظ مسبقاً)" : " يمكن إنجازها في الشهر تقريباً"}`);
     document.getElementById("memo-results").innerHTML = html;
   }
 
@@ -623,6 +775,18 @@
     const v = Math.max(Number(r.programValue) || 1, 1);
     return r.programUnit === "months" ? Math.round(v * 30) : Math.round(v * 7);
   }
+  // Total length in days of the program when the end is set via a specific Hijri/Gregorian date
+  function computeProgramDaysFromEndDate(r) {
+    const today = new Date();
+    const todayJDN = gregorianToJDN(today.getFullYear(), today.getMonth() + 1, today.getDate());
+    const parts = r.endDate || defaultEndDateParts(r.calendarType);
+    const targetJDN = r.calendarType === "hijri" ? hijriToJDN(parts.year, parts.month, parts.day) : gregorianToJDN(parts.year, parts.month, parts.day);
+    return Math.max(targetJDN - todayJDN, 1);
+  }
+  // Resolves the cyclic program's total length in days, whichever end-mode is active
+  function getProgramDays(r) {
+    return r.endMode === "date" ? computeProgramDaysFromEndDate(r) : computeProgramDays(r);
+  }
   function computeSchedule(r, totalPages, totalDays) {
     const restIndex = r.restDay === "بدون راحة" ? -1 : WEEK_DAYS.indexOf(r.restDay);
     const today = new Date();
@@ -644,6 +808,55 @@
 
   function surahOptionsHTML(selectedIndex) {
     return SURAHS.map((s, i) => `<option value="${i}"${i === selectedIndex ? " selected" : ""}>${s[0]}</option>`).join("");
+  }
+
+  /* ---------------- End-date picker (هجري / ميلادي) for cyclic review ---------------- */
+  function buildEndDatePickerHTML(r, prefix) {
+    const type = r.calendarType || "gregorian";
+    const parts = r.endDate || defaultEndDateParts(type);
+    const isHijri = type === "hijri";
+    const monthNames = isHijri ? HIJRI_MONTHS : ARABIC_MONTHS;
+    const baseYear = isHijri ? todayHijriParts().year : new Date().getFullYear();
+    const dayCount = isHijri ? 30 : daysInGregorianMonth(parts.year || baseYear, parts.month || 1);
+
+    let dayOptions = "";
+    for (let d = 1; d <= dayCount; d++) {
+      dayOptions += `<option value="${d}"${d === parts.day ? " selected" : ""}>${d}</option>`;
+    }
+    let monthOptions = "";
+    monthNames.forEach((name, idx) => {
+      monthOptions += `<option value="${idx + 1}"${idx + 1 === parts.month ? " selected" : ""}>${name}</option>`;
+    });
+    let yearOptions = "";
+    for (let y = baseYear; y <= baseYear + 6; y++) {
+      yearOptions += `<option value="${y}"${y === parts.year ? " selected" : ""}>${y}</option>`;
+    }
+
+    const endDateObjForDisplay = isHijri
+      ? (() => { const g = convertDateParts("hijri", "gregorian", parts); return new Date(g.year, g.month - 1, g.day); })()
+      : new Date(parts.year, parts.month - 1, parts.day);
+
+    return `
+      <div class="mode-switch" style="margin-top:0.7rem;">
+        <button class="mode-btn${!isHijri ? " active" : ""}" id="${prefix}review-caltype-gregorian">ميلادي</button>
+        <button class="mode-btn${isHijri ? " active" : ""}" id="${prefix}review-caltype-hijri">هجري</button>
+      </div>
+      <div class="field-row" style="margin-top:0.6rem;">
+        <div class="field-group">
+          <span>اليوم</span>
+          <select id="${prefix}review-end-day">${dayOptions}</select>
+        </div>
+        <div class="field-group">
+          <span>الشهر</span>
+          <select id="${prefix}review-end-month">${monthOptions}</select>
+        </div>
+        <div class="field-group">
+          <span>السنة</span>
+          <select id="${prefix}review-end-year">${yearOptions}</select>
+        </div>
+      </div>
+      <p class="hint">تاريخ الانتهاء الموافق: ${formatDualDate(endDateObjForDisplay)}</p>
+    `;
   }
 
   function buildReviewFormHTML(r, prefix) {
@@ -697,6 +910,14 @@
             </select>
           </div>
         </div>
+
+        <label class="field-label" style="margin-top:0.9rem;">طريقة تحديد نهاية برنامج المراجعة</label>
+        <div class="mode-switch">
+          <button class="mode-btn${r.endMode !== "date" ? " active" : ""}" id="${prefix}review-endmode-duration">مدة زمنية</button>
+          <button class="mode-btn${r.endMode === "date" ? " active" : ""}" id="${prefix}review-endmode-date">تاريخ انتهاء محدد</button>
+        </div>
+
+        ${r.endMode === "date" ? buildEndDatePickerHTML(r, prefix) : `
         <label class="field-label" style="margin-top:0.9rem;">المدة الإجمالية للبرنامج (تكرار الدورة حتى)</label>
         <div class="field-row">
           <div class="field-group">
@@ -708,8 +929,9 @@
               <option value="months"${r.programUnit === "months" ? " selected" : ""}>شهراً</option>
             </select>
           </div>
-        </div>
-        <p class="hint">سيتكرر ختم هذا النطاق تلقائياً بنفس الدورة حتى نهاية البرنامج، وينعكس هذا التكرار كاملاً على تقويم PDF.</p>
+        </div>`}
+
+        <p class="hint">سيتكرر ختم هذا النطاق تلقائياً بنفس الدورة حتى نهاية البرنامج، وينعكس هذا التكرار كاملاً على تقويم PDF. ملاحظة: تتوقف المراجعة فوراً عند بلوغ تاريخ الانتهاء، حتى لو لم تكتمل الدورة الجارية.</p>
         ${restDaySelectHTML}
       </div>` : `
       <div class="card form-card">
@@ -769,8 +991,36 @@
     if (r.cyclicMode) {
       document.getElementById(`${prefix}review-cycle-value`).oninput = (e) => { state.review.cycleValue = e.target.value; onInputChange(); };
       document.getElementById(`${prefix}review-cycle-unit`).onchange = (e) => { state.review.cycleUnit = e.target.value; onInputChange(); };
-      document.getElementById(`${prefix}review-program-value`).oninput = (e) => { state.review.programValue = e.target.value; onInputChange(); };
-      document.getElementById(`${prefix}review-program-unit`).onchange = (e) => { state.review.programUnit = e.target.value; onInputChange(); };
+
+      document.getElementById(`${prefix}review-endmode-duration`).onclick = () => { state.review.endMode = "duration"; onModeChange(); };
+      document.getElementById(`${prefix}review-endmode-date`).onclick = () => {
+        if (!state.review.endDate) state.review.endDate = defaultEndDateParts(state.review.calendarType);
+        state.review.endMode = "date";
+        onModeChange();
+      };
+
+      if (r.endMode === "date") {
+        if (!state.review.endDate) state.review.endDate = defaultEndDateParts(state.review.calendarType);
+        document.getElementById(`${prefix}review-caltype-gregorian`).onclick = () => {
+          state.review.endDate = convertDateParts(state.review.calendarType, "gregorian", state.review.endDate);
+          state.review.calendarType = "gregorian";
+          onModeChange();
+        };
+        document.getElementById(`${prefix}review-caltype-hijri`).onclick = () => {
+          state.review.endDate = convertDateParts(state.review.calendarType, "hijri", state.review.endDate);
+          state.review.calendarType = "hijri";
+          onModeChange();
+        };
+        document.getElementById(`${prefix}review-end-day`).onchange = (e) => { state.review.endDate.day = Number(e.target.value); onInputChange(); };
+        document.getElementById(`${prefix}review-end-month`).onchange = (e) => {
+          state.review.endDate.month = Number(e.target.value);
+          onModeChange(); // شهر جديد قد يغيّر عدد الأيام المتاحة
+        };
+        document.getElementById(`${prefix}review-end-year`).onchange = (e) => { state.review.endDate.year = Number(e.target.value); onInputChange(); };
+      } else {
+        document.getElementById(`${prefix}review-program-value`).oninput = (e) => { state.review.programValue = e.target.value; onInputChange(); };
+        document.getElementById(`${prefix}review-program-unit`).onchange = (e) => { state.review.programUnit = e.target.value; onInputChange(); };
+      }
     } else {
       document.getElementById(`${prefix}review-duration-value`).oninput = (e) => { state.review.durationValue = e.target.value; onInputChange(); };
       document.getElementById(`${prefix}review-duration-unit`).onchange = (e) => { state.review.durationUnit = e.target.value; onInputChange(); };
@@ -804,7 +1054,7 @@
 
     if (r.cyclicMode) {
       const cycleDays = computeCycleDays(r);
-      const programDays = computeProgramDays(r);
+      const programDays = getProgramDays(r);
       const cycleSchedule = computeSchedule(r, totalPages, cycleDays);
       const numCycles = Math.max(Math.round(programDays / cycleDays), 1);
       const programFinish = addDays(new Date(), programDays);
@@ -816,13 +1066,17 @@
           <span class="day-pages">${d.isRest ? "راحة" : (d.isFilled || d.fromPage == null ? "✓ تمّ" : `${d.fromPage}-${d.toPage}`)}</span>
         </div>`).join("");
 
+      const endText = r.endMode === "date"
+        ? `حتى تاريخ الانتهاء المحدد: ${formatDualDate(programFinish)} (${numCycles} دورة تقريباً)، وستتوقف المراجعة فور بلوغ هذا التاريخ`
+        : `على مدار البرنامج حتى ${formatDualDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`;
+
       const html = `
         <div class="stats-grid">
           ${statCardHTML(cycleSchedule.perDay, "صفحة يومياً بالدورة")}
           ${statCardHTML(cycleDays, "يوماً لكل دورة")}
           ${statCardHTML(numCycles, "دورة ختم بالبرنامج")}
         </div>
-        ${inspireHTML(`ستتكرر دورة ختم هذا النطاق كل ${cycleDays} يوماً على مدار البرنامج حتى ${formatDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`)}
+        ${inspireHTML(`ستتكرر دورة ختم هذا النطاق كل ${cycleDays} يوماً ${endText}`)}
         <div class="week-table card">
           <h3 class="week-title">جدول الدورة الواحدة (تتكرر تلقائياً)</h3>
           <div class="week-grid">${weekGridHTML}</div>
@@ -898,7 +1152,7 @@
     let reviewStatCardHTML, weekGridHTML, reviewInspireText;
     if (r.cyclicMode) {
       const cycleDays = computeCycleDays(r);
-      const programDays = computeProgramDays(r);
+      const programDays = getProgramDays(r);
       const cycleSchedule = computeSchedule(r, totalPages, cycleDays);
       const numCycles = Math.max(Math.round(programDays / cycleDays), 1);
       const programFinish = addDays(new Date(), programDays);
@@ -911,7 +1165,9 @@
           <span class="day-pages" style="margin-top:2px;">${d.isRest ? "راحة مراجعة" : (d.isFilled || d.fromPage == null ? "✓ تمّ" : `مراجعة: ${d.fromPage}-${d.toPage}`)}</span>
         </div>`).join("");
       reviewStatCardHTML = statCardHTML(cycleDays, "يوماً لكل دورة مراجعة");
-      reviewInspireText = `وستتكرر دورة مراجعة هذا النطاق كل ${cycleDays} يوماً حتى ${formatDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`;
+      reviewInspireText = r.endMode === "date"
+        ? `وستتكرر دورة مراجعة هذا النطاق كل ${cycleDays} يوماً حتى تتوقف فوراً بتاريخ ${formatDualDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`
+        : `وستتكرر دورة مراجعة هذا النطاق كل ${cycleDays} يوماً حتى ${formatDualDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`;
     } else {
       const totalDays = computeTotalDays(r);
       const schedule = computeSchedule(r, totalPages, totalDays);
@@ -1072,20 +1328,31 @@
         totalDays = computePace(m).totalDays;
       }
       totalDays = Math.max(Math.round(totalDays), 1);
-      const days = buildDailyAssignments(1, TOTAL_PAGES, totalDays, null, today);
-      return { days, title: "خطة الحفظ", subtitle: `${totalDays} يوماً لختم حفظ القرآن الكريم بإذن الله` };
+      const startPage = getRemainingStartPage(m);
+      const hasPreMem = getPreMemorizedCount(m) > 0;
+      const days = buildDailyAssignments(startPage, TOTAL_PAGES, totalDays, null, today);
+      return {
+        days,
+        title: "خطة الحفظ",
+        subtitle: hasPreMem
+          ? `${totalDays} يوماً لختم حفظ باقي القرآن الكريم (من الصفحة ${startPage}) بإذن الله`
+          : `${totalDays} يوماً لختم حفظ القرآن الكريم بإذن الله`,
+      };
     } else {
       const r = state.review;
       const range = computeRange(r);
       if (r.cyclicMode) {
         const cycleDays = computeCycleDays(r);
-        const totalDays = computeProgramDays(r);
+        const totalDays = getProgramDays(r);
         const numCycles = Math.max(Math.round(totalDays / cycleDays), 1);
         const days = buildCyclicAssignments(range.from, range.to, cycleDays, totalDays, r.restDay, today);
+        const endText = r.endMode === "date"
+          ? `حتى ${formatDualDate(addDays(today, totalDays))}`
+          : `${numCycles} دورة تقريباً`;
         return {
           days,
           title: "جدول المراجعة الدوري",
-          subtitle: `تكرار ختم الصفحات من ${range.from} إلى ${range.to} كل ${cycleDays} يوماً — ${numCycles} دورة تقريباً`,
+          subtitle: `تكرار ختم الصفحات من ${range.from} إلى ${range.to} كل ${cycleDays} يوماً — ${endText}`,
         };
       }
       const totalDays = computeTotalDays(r);
@@ -1101,17 +1368,21 @@
     const m = state.memo;
     let memoTotalDays = (m.mode === "duration") ? computeDuration(m).totalDays : computePace(m).totalDays;
     memoTotalDays = Math.max(Math.round(memoTotalDays), 1);
-    const memoDays = buildDailyAssignments(1, TOTAL_PAGES, memoTotalDays, null, today);
+    const memoStartPage = getRemainingStartPage(m);
+    const memoDays = buildDailyAssignments(memoStartPage, TOTAL_PAGES, memoTotalDays, null, today);
 
     const r = state.review;
     const range = computeRange(r);
     let reviewDays, reviewSubtitle;
     if (r.cyclicMode) {
       const cycleDays = computeCycleDays(r);
-      const programDays = computeProgramDays(r);
+      const programDays = getProgramDays(r);
       const numCycles = Math.max(Math.round(programDays / cycleDays), 1);
       reviewDays = buildCyclicAssignments(range.from, range.to, cycleDays, programDays, r.restDay, today);
-      reviewSubtitle = `مع تكرار ختم مراجعة الصفحات من ${range.from} إلى ${range.to} كل ${cycleDays} يوماً (${numCycles} دورة تقريباً)`;
+      const endText = r.endMode === "date"
+        ? `حتى ${formatDualDate(addDays(today, programDays))}`
+        : `${numCycles} دورة تقريباً`;
+      reviewSubtitle = `مع تكرار ختم مراجعة الصفحات من ${range.from} إلى ${range.to} كل ${cycleDays} يوماً (${endText})`;
     } else {
       const reviewTotalDays = computeTotalDays(r);
       reviewDays = buildDailyAssignments(range.from, range.to, reviewTotalDays, r.restDay, today);
@@ -1131,7 +1402,7 @@
     return {
       days,
       title: "الخطة الشاملة (حفظ ومراجعة)",
-      subtitle: `حفظ القرآن كاملاً، ${reviewSubtitle}`,
+      subtitle: `${getPreMemorizedCount(m) > 0 ? `حفظ باقي القرآن من الصفحة ${memoStartPage}` : "حفظ القرآن كاملاً"}، ${reviewSubtitle}`,
     };
   }
 
