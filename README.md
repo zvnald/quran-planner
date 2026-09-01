@@ -575,7 +575,12 @@
         btn.onclick = () => {
           const current = (obj.activeDays && obj.activeDays.length) ? obj.activeDays : WEEK_DAYS.slice();
           const set = new Set(current);
-          if (set.has(d)) { if (set.size > 1) set.delete(d); } else set.add(d);
+          if (set.has(d)) {
+            if (set.size > 1) { set.delete(d); btn.classList.remove("active"); }
+          } else {
+            set.add(d);
+            btn.classList.add("active");
+          }
           obj.activeDays = WEEK_DAYS.filter((x) => set.has(x));
           onInputChange();
         };
