@@ -88,23 +88,26 @@
 
   .tabs {
     display: flex;
+    flex-wrap: wrap;
     background: var(--linen);
     border: 1px solid var(--sand);
-    border-radius: 999px;
+    border-radius: 18px;
     padding: 4px;
     margin-bottom: clamp(1rem, 3vw, 1.4rem);
     box-shadow: inset 0 1px 3px rgba(74,48,32,0.08);
   }
   .tab-btn {
     flex: 1;
+    min-width: 96px;
     border: none;
     background: transparent;
     padding: clamp(0.55rem, 2vw, 0.7rem) 0.5rem;
     min-height: 44px;
-    border-radius: 999px;
+    border-radius: 14px;
     font-family: 'Tajawal', sans-serif;
     font-weight: 700;
-    font-size: clamp(0.8rem, 2.1vw, 0.96rem);
+    font-size: clamp(0.72rem, 2vw, 0.9rem);
+    line-height: 1.3;
     color: var(--cinnamon);
     cursor: pointer;
     transition: all .25s ease;
@@ -148,6 +151,16 @@
     break-inside: avoid;
   }
   .field-label { display: block; font-weight: 700; font-size: clamp(0.82rem, 2vw, 0.9rem); margin-bottom: 0.55rem; color: var(--coffee); }
+  .combo-section-title {
+    font-family: 'Amiri', serif;
+    font-weight: 700;
+    font-size: clamp(1rem, 2.6vw, 1.15rem);
+    color: var(--coffee);
+    margin: 1.1rem 0 0.6rem;
+    padding-bottom: 0.35rem;
+    border-bottom: 2px solid var(--sand);
+  }
+  .combo-section-title:first-child { margin-top: 0; }
   .field-row {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
@@ -347,6 +360,22 @@
     line-height: 1.35;
   }
   .cal-task.cal-task-rest { color: var(--cinnamon); background: transparent; border-style: dashed; }
+
+  /* ---- Combined (memorize + review) calendar cell ---- */
+  .cal-cell.cal-cell-combined { min-height: 118px; }
+  .cal-task-group { display: flex; flex-direction: column; gap: 4px; }
+  .cal-task-mini {
+    font-size: 0.62rem;
+    font-weight: 700;
+    border-radius: 6px;
+    padding: 3px 4px;
+    text-align: center;
+    line-height: 1.3;
+  }
+  .cal-task-mini.memo { background: var(--linen); color: var(--espresso); border: 1px solid var(--sand); }
+  .cal-task-mini.review { background: #efe6d6; color: var(--coffee); border: 1px dashed var(--caramel); }
+  .cal-task-mini.review.is-rest { color: var(--cinnamon); background: transparent; }
+
   .cal-page-footer {
     margin-top: 16px;
     text-align: center;
@@ -367,6 +396,7 @@
     <div class="tabs">
       <button class="tab-btn active" id="tab-memorize">خطة الحفظ</button>
       <button class="tab-btn" id="tab-review">جدول المراجعة</button>
+      <button class="tab-btn" id="tab-combined">خطة شاملة (حفظ ومراجعة)</button>
     </div>
 
     <div id="tab-content"></div>
@@ -469,8 +499,7 @@
     return { totalWeeks, totalDays, totalYears, finishDate: addDays(startDate, totalDays) };
   }
 
-  function renderMemoPanel() {
-    const m = state.memo;
+  function buildMemoFormHTML(m, prefix) {
     let formHTML = "";
     if (m.mode === "duration") {
       formHTML = `
@@ -478,11 +507,11 @@
           <label class="field-label">أريد إتمام حفظ القرآن خلال:</label>
           <div class="field-row">
             <div class="field-group">
-              <input type="number" min="0" id="memo-years" value="${m.years}" />
+              <input type="number" min="0" id="${prefix}memo-years" value="${m.years}" />
               <span>سنة</span>
             </div>
             <div class="field-group">
-              <input type="number" min="0" max="11" id="memo-months" value="${m.months}" />
+              <input type="number" min="0" max="11" id="${prefix}memo-months" value="${m.months}" />
               <span>شهر</span>
             </div>
           </div>
@@ -492,36 +521,42 @@
         <div class="card form-card">
           <label class="field-label">أستطيع حفظ هذا العدد من الصفحات أسبوعياً:</label>
           <div class="field-group wide">
-            <input type="number" min="0.5" step="0.5" id="memo-pace" value="${m.pagesPerWeek}" />
+            <input type="number" min="0.5" step="0.5" id="${prefix}memo-pace" value="${m.pagesPerWeek}" />
             <span>صفحة / أسبوع</span>
           </div>
         </div>`;
     }
+    return `
+      <div class="mode-switch">
+        <button class="mode-btn${m.mode === "duration" ? " active" : ""}" id="${prefix}memo-mode-duration">الحساب بالمدة</button>
+        <button class="mode-btn${m.mode === "pace" ? " active" : ""}" id="${prefix}memo-mode-pace">الحساب بعدد الصفحات</button>
+      </div>
+      ${formHTML}
+    `;
+  }
 
+  function bindMemoFormEvents(prefix, onModeChange, onInputChange) {
+    document.getElementById(`${prefix}memo-mode-duration`).onclick = () => { state.memo.mode = "duration"; onModeChange(); };
+    document.getElementById(`${prefix}memo-mode-pace`).onclick = () => { state.memo.mode = "pace"; onModeChange(); };
+    const m = state.memo;
+    if (m.mode === "duration") {
+      document.getElementById(`${prefix}memo-years`).oninput = (e) => { state.memo.years = Number(e.target.value); onInputChange(); };
+      document.getElementById(`${prefix}memo-months`).oninput = (e) => { state.memo.months = Number(e.target.value); onInputChange(); };
+    } else {
+      document.getElementById(`${prefix}memo-pace`).oninput = (e) => { state.memo.pagesPerWeek = e.target.value; onInputChange(); };
+    }
+  }
+
+  function renderMemoPanel() {
+    const m = state.memo;
     const html = `
       <div class="panel-grid">
-        <div class="panel-col panel-col-form">
-          <div class="mode-switch">
-            <button class="mode-btn${m.mode === "duration" ? " active" : ""}" id="memo-mode-duration">الحساب بالمدة</button>
-            <button class="mode-btn${m.mode === "pace" ? " active" : ""}" id="memo-mode-pace">الحساب بعدد الصفحات</button>
-          </div>
-          ${formHTML}
-        </div>
+        <div class="panel-col panel-col-form">${buildMemoFormHTML(m, "")}</div>
         <div class="panel-col panel-col-results" id="memo-results"></div>
       </div>
     `;
     document.getElementById("tab-content").innerHTML = html;
-
-    document.getElementById("memo-mode-duration").onclick = () => { state.memo.mode = "duration"; renderMemoPanel(); };
-    document.getElementById("memo-mode-pace").onclick = () => { state.memo.mode = "pace"; renderMemoPanel(); };
-
-    if (m.mode === "duration") {
-      document.getElementById("memo-years").oninput = (e) => { state.memo.years = Number(e.target.value); updateMemoResults(); };
-      document.getElementById("memo-months").oninput = (e) => { state.memo.months = Number(e.target.value); updateMemoResults(); };
-    } else {
-      document.getElementById("memo-pace").oninput = (e) => { state.memo.pagesPerWeek = e.target.value; updateMemoResults(); };
-    }
-
+    bindMemoFormEvents("", renderMemoPanel, updateMemoResults);
     updateMemoResults();
   }
 
@@ -592,19 +627,18 @@
     return SURAHS.map((s, i) => `<option value="${i}"${i === selectedIndex ? " selected" : ""}>${s[0]}</option>`).join("");
   }
 
-  function renderReviewPanel() {
-    const r = state.review;
+  function buildReviewFormHTML(r, prefix) {
     let rangeFieldsHTML = "";
     if (r.rangeMode === "pages") {
       rangeFieldsHTML = `
         <div class="field-row">
           <div class="field-group">
             <span>من صفحة</span>
-            <input type="number" min="1" max="${TOTAL_PAGES}" id="review-from-page" value="${r.fromPage}" />
+            <input type="number" min="1" max="${TOTAL_PAGES}" id="${prefix}review-from-page" value="${r.fromPage}" />
           </div>
           <div class="field-group">
             <span>إلى صفحة</span>
-            <input type="number" min="1" max="${TOTAL_PAGES}" id="review-to-page" value="${r.toPage}" />
+            <input type="number" min="1" max="${TOTAL_PAGES}" id="${prefix}review-to-page" value="${r.toPage}" />
           </div>
         </div>`;
     } else {
@@ -612,72 +646,79 @@
         <div class="field-row">
           <div class="field-group wide">
             <span>من سورة</span>
-            <select id="review-from-surah">${surahOptionsHTML(r.fromSurah)}</select>
+            <select id="${prefix}review-from-surah">${surahOptionsHTML(r.fromSurah)}</select>
           </div>
           <div class="field-group wide">
             <span>إلى سورة</span>
-            <select id="review-to-surah">${surahOptionsHTML(r.toSurah)}</select>
+            <select id="${prefix}review-to-surah">${surahOptionsHTML(r.toSurah)}</select>
           </div>
         </div>`;
     }
 
-    const html = `
-      <div class="panel-grid">
-        <div class="panel-col panel-col-form">
-          <div class="mode-switch">
-            <button class="mode-btn${r.rangeMode === "pages" ? " active" : ""}" id="review-mode-pages">بأرقام الصفحات</button>
-            <button class="mode-btn${r.rangeMode === "surah" ? " active" : ""}" id="review-mode-surah">بالسور</button>
-          </div>
+    return `
+      <div class="mode-switch">
+        <button class="mode-btn${r.rangeMode === "pages" ? " active" : ""}" id="${prefix}review-mode-pages">بأرقام الصفحات</button>
+        <button class="mode-btn${r.rangeMode === "surah" ? " active" : ""}" id="${prefix}review-mode-surah">بالسور</button>
+      </div>
 
-          <div class="card form-card">
-            <label class="field-label">نطاق المراجعة</label>
-            ${rangeFieldsHTML}
-            <p class="hint" id="review-range-hint"></p>
-          </div>
+      <div class="card form-card">
+        <label class="field-label">نطاق المراجعة</label>
+        ${rangeFieldsHTML}
+        <p class="hint" id="${prefix}review-range-hint"></p>
+      </div>
 
-          <div class="card form-card">
-            <label class="field-label">أريد إتمام هذه المراجعة خلال</label>
-            <div class="field-row">
-              <div class="field-group">
-                <input type="number" min="1" id="review-duration-value" value="${r.durationValue}" />
-              </div>
-              <div class="field-group">
-                <select id="review-duration-unit">
-                  <option value="days"${r.durationUnit === "days" ? " selected" : ""}>يوماً</option>
-                  <option value="weeks"${r.durationUnit === "weeks" ? " selected" : ""}>أسبوعاً (ختم دوري)</option>
-                  <option value="months"${r.durationUnit === "months" ? " selected" : ""}>شهراً</option>
-                </select>
-              </div>
-            </div>
-            <label class="field-label" style="margin-top:0.9rem;">يوم الراحة الأسبوعي</label>
-            <div class="field-group wide">
-              <select id="review-rest-day">
-                <option value="بدون راحة"${r.restDay === "بدون راحة" ? " selected" : ""}>بدون يوم راحة</option>
-                ${WEEK_DAYS.map((d) => `<option value="${d}"${r.restDay === d ? " selected" : ""}>${d}</option>`).join("")}
-              </select>
-            </div>
+      <div class="card form-card">
+        <label class="field-label">أريد إتمام هذه المراجعة خلال</label>
+        <div class="field-row">
+          <div class="field-group">
+            <input type="number" min="1" id="${prefix}review-duration-value" value="${r.durationValue}" />
+          </div>
+          <div class="field-group">
+            <select id="${prefix}review-duration-unit">
+              <option value="days"${r.durationUnit === "days" ? " selected" : ""}>يوماً</option>
+              <option value="weeks"${r.durationUnit === "weeks" ? " selected" : ""}>أسبوعاً (ختم دوري)</option>
+              <option value="months"${r.durationUnit === "months" ? " selected" : ""}>شهراً</option>
+            </select>
           </div>
         </div>
+        <label class="field-label" style="margin-top:0.9rem;">يوم الراحة الأسبوعي</label>
+        <div class="field-group wide">
+          <select id="${prefix}review-rest-day">
+            <option value="بدون راحة"${r.restDay === "بدون راحة" ? " selected" : ""}>بدون يوم راحة</option>
+            ${WEEK_DAYS.map((d) => `<option value="${d}"${r.restDay === d ? " selected" : ""}>${d}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+    `;
+  }
 
+  function bindReviewFormEvents(prefix, onModeChange, onInputChange) {
+    document.getElementById(`${prefix}review-mode-pages`).onclick = () => { state.review.rangeMode = "pages"; onModeChange(); };
+    document.getElementById(`${prefix}review-mode-surah`).onclick = () => { state.review.rangeMode = "surah"; onModeChange(); };
+
+    const r = state.review;
+    if (r.rangeMode === "pages") {
+      document.getElementById(`${prefix}review-from-page`).oninput = (e) => { state.review.fromPage = e.target.value; onInputChange(); };
+      document.getElementById(`${prefix}review-to-page`).oninput = (e) => { state.review.toPage = e.target.value; onInputChange(); };
+    } else {
+      document.getElementById(`${prefix}review-from-surah`).onchange = (e) => { state.review.fromSurah = Number(e.target.value); onInputChange(); };
+      document.getElementById(`${prefix}review-to-surah`).onchange = (e) => { state.review.toSurah = Number(e.target.value); onInputChange(); };
+    }
+    document.getElementById(`${prefix}review-duration-value`).oninput = (e) => { state.review.durationValue = e.target.value; onInputChange(); };
+    document.getElementById(`${prefix}review-duration-unit`).onchange = (e) => { state.review.durationUnit = e.target.value; onInputChange(); };
+    document.getElementById(`${prefix}review-rest-day`).onchange = (e) => { state.review.restDay = e.target.value; onInputChange(); };
+  }
+
+  function renderReviewPanel() {
+    const r = state.review;
+    const html = `
+      <div class="panel-grid">
+        <div class="panel-col panel-col-form">${buildReviewFormHTML(r, "")}</div>
         <div class="panel-col panel-col-results" id="review-results"></div>
       </div>
     `;
     document.getElementById("tab-content").innerHTML = html;
-
-    document.getElementById("review-mode-pages").onclick = () => { state.review.rangeMode = "pages"; renderReviewPanel(); };
-    document.getElementById("review-mode-surah").onclick = () => { state.review.rangeMode = "surah"; renderReviewPanel(); };
-
-    if (r.rangeMode === "pages") {
-      document.getElementById("review-from-page").oninput = (e) => { state.review.fromPage = e.target.value; updateReviewResults(); };
-      document.getElementById("review-to-page").oninput = (e) => { state.review.toPage = e.target.value; updateReviewResults(); };
-    } else {
-      document.getElementById("review-from-surah").onchange = (e) => { state.review.fromSurah = Number(e.target.value); updateReviewResults(); };
-      document.getElementById("review-to-surah").onchange = (e) => { state.review.toSurah = Number(e.target.value); updateReviewResults(); };
-    }
-    document.getElementById("review-duration-value").oninput = (e) => { state.review.durationValue = e.target.value; updateReviewResults(); };
-    document.getElementById("review-duration-unit").onchange = (e) => { state.review.durationUnit = e.target.value; updateReviewResults(); };
-    document.getElementById("review-rest-day").onchange = (e) => { state.review.restDay = e.target.value; updateReviewResults(); };
-
+    bindReviewFormEvents("", renderReviewPanel, updateReviewResults);
     updateReviewResults();
   }
 
@@ -715,15 +756,84 @@
     document.getElementById("review-results").innerHTML = html;
   }
 
+  /* ---------------- Combined plan (memorize + review together) ---------------- */
+  function renderCombinedPanel() {
+    const m = state.memo;
+    const r = state.review;
+    const html = `
+      <div class="panel-grid">
+        <div class="panel-col panel-col-form">
+          <h3 class="combo-section-title">إعدادات الحفظ</h3>
+          ${buildMemoFormHTML(m, "c-")}
+          <h3 class="combo-section-title">إعدادات المراجعة</h3>
+          ${buildReviewFormHTML(r, "c-")}
+        </div>
+        <div class="panel-col panel-col-results" id="combined-results"></div>
+      </div>
+    `;
+    document.getElementById("tab-content").innerHTML = html;
+    bindMemoFormEvents("c-", renderCombinedPanel, updateCombinedResults);
+    bindReviewFormEvents("c-", renderCombinedPanel, updateCombinedResults);
+    updateCombinedResults();
+  }
+
+  function updateCombinedResults() {
+    const m = state.memo;
+    const r = state.review;
+
+    let memoPerDay, memoFinish;
+    if (m.mode === "duration") {
+      const rr = computeDuration(m);
+      memoPerDay = rr.perDay;
+      memoFinish = rr.finishDate;
+    } else {
+      const rr = computePace(m);
+      memoPerDay = TOTAL_PAGES / Math.max(rr.totalDays, 1);
+      memoFinish = rr.finishDate;
+    }
+
+    const range = computeRange(r);
+    const totalPages = range.to - range.from + 1;
+    const totalDays = computeTotalDays(r);
+    const schedule = computeSchedule(r, totalPages, totalDays);
+
+    const weekGridHTML = schedule.weekPlan.map((d) => `
+      <div class="day-card${d.isRest ? " day-rest" : ""}">
+        <span class="day-name">${d.day}</span>
+        <span class="day-pages">حفظ: ${memoPerDay.toFixed(1)}</span>
+        <span class="day-pages" style="margin-top:2px;">${d.isRest ? "راحة مراجعة" : `مراجعة: ${d.pages}`}</span>
+      </div>`).join("");
+
+    const html = `
+      <div class="stats-grid">
+        ${statCardHTML(memoPerDay.toFixed(2), "صفحة حفظ يومياً")}
+        ${statCardHTML(schedule.perDay, "صفحة مراجعة يومياً")}
+        ${statCardHTML(totalPages, "صفحات نطاق المراجعة")}
+      </div>
+      <div class="inspire-card">
+        <span class="inspire-icon">✦</span>
+        <p>ستختم حفظ القرآن الكريم بتاريخ ${formatDate(memoFinish)}، وستختم مراجعة هذا النطاق بتاريخ ${formatDate(schedule.finishDate)}، بإذن الله</p>
+      </div>
+      <div class="week-table card">
+        <h3 class="week-title">نظرة أسبوعية سريعة (حفظ + مراجعة)</h3>
+        <div class="week-grid">${weekGridHTML}</div>
+      </div>
+    `;
+    document.getElementById("combined-results").innerHTML = html;
+  }
+
   /* ---------------- Tabs ---------------- */
   function renderTab() {
     document.getElementById("tab-memorize").classList.toggle("active", state.tab === "memorize");
     document.getElementById("tab-review").classList.toggle("active", state.tab === "review");
+    document.getElementById("tab-combined").classList.toggle("active", state.tab === "combined");
     if (state.tab === "memorize") renderMemoPanel();
-    else renderReviewPanel();
+    else if (state.tab === "review") renderReviewPanel();
+    else renderCombinedPanel();
   }
   document.getElementById("tab-memorize").onclick = () => { state.tab = "memorize"; renderTab(); };
   document.getElementById("tab-review").onclick = () => { state.tab = "review"; renderTab(); };
+  document.getElementById("tab-combined").onclick = () => { state.tab = "combined"; renderTab(); };
 
   /* ---------------- Save notice ---------------- */
   function showNotice(text, ms) {
@@ -836,6 +946,37 @@
     }
   }
 
+  // Combines the memorization plan and the review schedule into a single day-by-day list
+  function getCombinedPlanAssignments() {
+    const today = new Date();
+
+    const m = state.memo;
+    let memoTotalDays = (m.mode === "duration") ? computeDuration(m).totalDays : computePace(m).totalDays;
+    memoTotalDays = Math.max(Math.round(memoTotalDays), 1);
+    const memoDays = buildDailyAssignments(1, TOTAL_PAGES, memoTotalDays, null, today);
+
+    const r = state.review;
+    const range = computeRange(r);
+    const reviewTotalDays = computeTotalDays(r);
+    const reviewDays = buildDailyAssignments(range.from, range.to, reviewTotalDays, r.restDay, today);
+
+    const totalDays = Math.max(memoDays.length, reviewDays.length);
+    const days = [];
+    for (let i = 0; i < totalDays; i++) {
+      days.push({
+        date: addDays(today, i),
+        memo: memoDays[i] || null,
+        review: reviewDays[i] || null,
+      });
+    }
+
+    return {
+      days,
+      title: "الخطة الشاملة (حفظ ومراجعة)",
+      subtitle: `حفظ القرآن كاملاً، ومراجعة الصفحات من ${range.from} إلى ${range.to}`,
+    };
+  }
+
   /* ---------------- Render calendar pages (one per month) as HTML ---------------- */
   function groupByMonth(days) {
     const months = [];
@@ -910,6 +1051,78 @@
     `;
   }
 
+  function buildCombinedMonthPageHTML(monthGroup, planTitle, planSubtitle) {
+    const { year, month, days } = monthGroup;
+    const firstDay = new Date(year, month, 1);
+    const firstDow = (firstDay.getDay() + 1) % 7;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const byDateNum = {};
+    days.forEach((d) => { byDateNum[d.date.getDate()] = d; });
+
+    let cells = "";
+    for (let i = 0; i < firstDow; i++) {
+      cells += `<div class="cal-cell cal-empty"></div>`;
+    }
+    for (let dnum = 1; dnum <= daysInMonth; dnum++) {
+      const a = byDateNum[dnum];
+      if (!a) {
+        cells += `<div class="cal-cell cal-empty"><span class="cal-date-num" style="opacity:.35">${dnum}</span></div>`;
+        continue;
+      }
+
+      const memoDay = a.memo;
+      let memoLabel;
+      if (!memoDay || memoDay.isFilled || memoDay.fromPage == null) {
+        memoLabel = "✓ تمّ الختم";
+      } else {
+        memoLabel = memoDay.fromPage === memoDay.toPage
+          ? `حفظ: ص${memoDay.fromPage}`
+          : `حفظ: ${memoDay.fromPage}-${memoDay.toPage}`;
+      }
+
+      const reviewDay = a.review;
+      let reviewLabel;
+      let isRest = false;
+      if (!reviewDay) {
+        reviewLabel = "✓ اكتملت المراجعة";
+      } else if (reviewDay.isRest) {
+        reviewLabel = "راحة مراجعة";
+        isRest = true;
+      } else if (reviewDay.isFilled || reviewDay.fromPage == null) {
+        reviewLabel = "✓ اكتملت المراجعة";
+      } else {
+        reviewLabel = reviewDay.fromPage === reviewDay.toPage
+          ? `مراجعة: ص${reviewDay.fromPage}`
+          : `مراجعة: ${reviewDay.fromPage}-${reviewDay.toPage}`;
+      }
+
+      cells += `<div class="cal-cell cal-cell-combined${isRest ? " cal-rest" : ""}">
+        <span class="cal-date-num">${dnum}</span>
+        <div class="cal-task-group">
+          <span class="cal-task-mini memo">${memoLabel}</span>
+          <span class="cal-task-mini review${isRest ? " is-rest" : ""}">${reviewLabel}</span>
+        </div>
+      </div>`;
+    }
+
+    const dowHeader = WEEK_DAYS.map((d) => `<div class="cal-dow">${d}</div>`).join("");
+
+    return `
+      <div class="cal-page">
+        <div class="cal-page-header">
+          <div>
+            <p class="cal-plan-title">${planTitle}</p>
+            <p class="cal-plan-sub">${planSubtitle}</p>
+          </div>
+          <div class="cal-month-badge">${ARABIC_MONTHS[month]} ${year}</div>
+        </div>
+        <div class="cal-grid">${dowHeader}${cells}</div>
+        <p class="cal-page-footer">﷽ — الخطة الشاملة لحفظ ومراجعة القرآن</p>
+      </div>
+    `;
+  }
+
   /* ---------------- PDF export ---------------- */
   document.getElementById("btn-pdf").addEventListener("click", async function () {
     const btn = this;
@@ -926,7 +1139,9 @@
         throw new Error("لم يتم تحميل مكتبات PDF");
       }
 
-      const plan = getActivePlanAssignments();
+      const isCombined = state.tab === "combined";
+      const plan = isCombined ? getCombinedPlanAssignments() : getActivePlanAssignments();
+      const monthRenderer = isCombined ? buildCombinedMonthPageHTML : buildMonthPageHTML;
       const months = groupByMonth(plan.days);
       if (months.length === 0) throw new Error("لا توجد بيانات كافية لبناء التقويم");
 
@@ -937,7 +1152,7 @@
 
       for (let i = 0; i < months.length; i++) {
         showNotice(`جارٍ تجهيز شهر ${i + 1} من ${months.length}...`);
-        calRoot.innerHTML = buildMonthPageHTML(months[i], plan.title, plan.subtitle);
+        calRoot.innerHTML = monthRenderer(months[i], plan.title, plan.subtitle);
         // Give the browser a tick to lay out fonts/DOM before capture
         await new Promise((res) => setTimeout(res, 30));
 
@@ -956,7 +1171,7 @@
       }
 
       calRoot.innerHTML = "";
-      pdf.save("تقويم-خطة-القرآن.pdf");
+      pdf.save(isCombined ? "تقويم-الخطة-الشاملة.pdf" : "تقويم-خطة-القرآن.pdf");
       showNotice("تم إنشاء تقويم PDF بنجاح ✓", 2500);
     } catch (err) {
       calRoot.innerHTML = "";
