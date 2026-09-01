@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>خطة القرآن</title>
+<title>خطة القرآن الكريم</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
@@ -32,7 +32,14 @@
   .app-shell {
     min-height: 100vh;
     width: 100%;
-    background: linear-gradient(180deg, #ffffff 0%, #fdfbf8 35%, #f7efe2 100%);
+    /* Faint decorative Islamic geometric watermark layered above the warm gradient.
+       The SVG's own stroke-opacity keeps it extremely subtle so it never competes with the text. */
+    background-image:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='150' height='150' viewBox='0 0 150 150'><g fill='none' stroke='%234a3020' stroke-opacity='0.06' stroke-width='1.2'><path d='M75 10 L90 56 L136 71 L90 86 L75 132 L60 86 L14 71 L60 56 Z'/><circle cx='75' cy='71' r='22'/><circle cx='75' cy='71' r='34'/></g></svg>"),
+      linear-gradient(180deg, #ffffff 0%, #fdfbf8 35%, #f7efe2 100%);
+    background-repeat: repeat, no-repeat;
+    background-size: 150px 150px, 100% 100%;
+    background-attachment: fixed, scroll;
     font-family: 'Tajawal', sans-serif;
     color: var(--espresso);
     padding: clamp(0.9rem, 3vw, 2.2rem) clamp(0.7rem, 4vw, 1.6rem) clamp(2rem, 5vw, 3.2rem);
@@ -389,7 +396,7 @@
   <div class="container" id="container">
     <header class="header header-banner">
       <div class="ornament">﷽</div>
-      <h1>خطة القرآن</h1>
+      <h1>خطة القرآن الكريم</h1>
       <p>خطط حفظك ومراجعتك للقرآن الكريم بخطوات واضحة</p>
     </header>
 
@@ -444,7 +451,7 @@
   ];
 
   const WEEK_DAYS = ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"];
-  const STORAGE_KEY = "quran-planner-state";
+  const STORAGE_KEY = "خطة-القرآن-الكريم-المحفوظة";
 
   const state = {
     tab: "memorize",
@@ -452,6 +459,8 @@
     review: {
       rangeMode: "pages", fromPage: 1, toPage: 20, fromSurah: 0, toSurah: 5,
       durationValue: 10, durationUnit: "days", restDay: "الجمعة",
+      cyclicMode: false, cycleValue: 7, cycleUnit: "days",
+      programValue: 1, programUnit: "months",
     },
   };
 
@@ -604,6 +613,16 @@
     if (r.durationUnit === "weeks") return Math.round(v * 7);
     return Math.round(v * 30);
   }
+  // Length in days of a single review cycle (e.g. "ختم كل 7 أيام")
+  function computeCycleDays(r) {
+    const v = Math.max(Number(r.cycleValue) || 1, 1);
+    return r.cycleUnit === "weeks" ? Math.round(v * 7) : Math.round(v);
+  }
+  // Total length in days of the whole cyclic program (e.g. "لمدة شهر")
+  function computeProgramDays(r) {
+    const v = Math.max(Number(r.programValue) || 1, 1);
+    return r.programUnit === "months" ? Math.round(v * 30) : Math.round(v * 7);
+  }
   function computeSchedule(r, totalPages, totalDays) {
     const restIndex = r.restDay === "بدون راحة" ? -1 : WEEK_DAYS.indexOf(r.restDay);
     const today = new Date();
@@ -655,6 +674,61 @@
         </div>`;
     }
 
+    const restDaySelectHTML = `
+      <label class="field-label" style="margin-top:0.9rem;">يوم الراحة الأسبوعي</label>
+      <div class="field-group wide">
+        <select id="${prefix}review-rest-day">
+          <option value="بدون راحة"${r.restDay === "بدون راحة" ? " selected" : ""}>بدون يوم راحة</option>
+          ${WEEK_DAYS.map((d) => `<option value="${d}"${r.restDay === d ? " selected" : ""}>${d}</option>`).join("")}
+        </select>
+      </div>`;
+
+    const scheduleFieldsHTML = r.cyclicMode ? `
+      <div class="card form-card">
+        <label class="field-label">دورة المراجعة (مدة ختم النطاق مرة واحدة)</label>
+        <div class="field-row">
+          <div class="field-group">
+            <input type="number" min="1" id="${prefix}review-cycle-value" value="${r.cycleValue}" />
+          </div>
+          <div class="field-group">
+            <select id="${prefix}review-cycle-unit">
+              <option value="days"${r.cycleUnit === "days" ? " selected" : ""}>يوماً</option>
+              <option value="weeks"${r.cycleUnit === "weeks" ? " selected" : ""}>أسبوعاً</option>
+            </select>
+          </div>
+        </div>
+        <label class="field-label" style="margin-top:0.9rem;">المدة الإجمالية للبرنامج (تكرار الدورة حتى)</label>
+        <div class="field-row">
+          <div class="field-group">
+            <input type="number" min="1" id="${prefix}review-program-value" value="${r.programValue}" />
+          </div>
+          <div class="field-group">
+            <select id="${prefix}review-program-unit">
+              <option value="weeks"${r.programUnit === "weeks" ? " selected" : ""}>أسبوعاً</option>
+              <option value="months"${r.programUnit === "months" ? " selected" : ""}>شهراً</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint">سيتكرر ختم هذا النطاق تلقائياً بنفس الدورة حتى نهاية البرنامج، وينعكس هذا التكرار كاملاً على تقويم PDF.</p>
+        ${restDaySelectHTML}
+      </div>` : `
+      <div class="card form-card">
+        <label class="field-label">أريد إتمام هذه المراجعة خلال</label>
+        <div class="field-row">
+          <div class="field-group">
+            <input type="number" min="1" id="${prefix}review-duration-value" value="${r.durationValue}" />
+          </div>
+          <div class="field-group">
+            <select id="${prefix}review-duration-unit">
+              <option value="days"${r.durationUnit === "days" ? " selected" : ""}>يوماً</option>
+              <option value="weeks"${r.durationUnit === "weeks" ? " selected" : ""}>أسبوعاً</option>
+              <option value="months"${r.durationUnit === "months" ? " selected" : ""}>شهراً</option>
+            </select>
+          </div>
+        </div>
+        ${restDaySelectHTML}
+      </div>`;
+
     return `
       <div class="mode-switch">
         <button class="mode-btn${r.rangeMode === "pages" ? " active" : ""}" id="${prefix}review-mode-pages">بأرقام الصفحات</button>
@@ -667,34 +741,21 @@
         <p class="hint" id="${prefix}review-range-hint"></p>
       </div>
 
-      <div class="card form-card">
-        <label class="field-label">أريد إتمام هذه المراجعة خلال</label>
-        <div class="field-row">
-          <div class="field-group">
-            <input type="number" min="1" id="${prefix}review-duration-value" value="${r.durationValue}" />
-          </div>
-          <div class="field-group">
-            <select id="${prefix}review-duration-unit">
-              <option value="days"${r.durationUnit === "days" ? " selected" : ""}>يوماً</option>
-              <option value="weeks"${r.durationUnit === "weeks" ? " selected" : ""}>أسبوعاً (ختم دوري)</option>
-              <option value="months"${r.durationUnit === "months" ? " selected" : ""}>شهراً</option>
-            </select>
-          </div>
-        </div>
-        <label class="field-label" style="margin-top:0.9rem;">يوم الراحة الأسبوعي</label>
-        <div class="field-group wide">
-          <select id="${prefix}review-rest-day">
-            <option value="بدون راحة"${r.restDay === "بدون راحة" ? " selected" : ""}>بدون يوم راحة</option>
-            ${WEEK_DAYS.map((d) => `<option value="${d}"${r.restDay === d ? " selected" : ""}>${d}</option>`).join("")}
-          </select>
-        </div>
+      <div class="mode-switch">
+        <button class="mode-btn${!r.cyclicMode ? " active" : ""}" id="${prefix}review-cycle-off">مراجعة لمرة واحدة</button>
+        <button class="mode-btn${r.cyclicMode ? " active" : ""}" id="${prefix}review-cycle-on">تكرار المراجعة الدوري</button>
       </div>
+
+      ${scheduleFieldsHTML}
     `;
   }
 
   function bindReviewFormEvents(prefix, onModeChange, onInputChange) {
     document.getElementById(`${prefix}review-mode-pages`).onclick = () => { state.review.rangeMode = "pages"; onModeChange(); };
     document.getElementById(`${prefix}review-mode-surah`).onclick = () => { state.review.rangeMode = "surah"; onModeChange(); };
+
+    document.getElementById(`${prefix}review-cycle-off`).onclick = () => { state.review.cyclicMode = false; onModeChange(); };
+    document.getElementById(`${prefix}review-cycle-on`).onclick = () => { state.review.cyclicMode = true; onModeChange(); };
 
     const r = state.review;
     if (r.rangeMode === "pages") {
@@ -704,8 +765,16 @@
       document.getElementById(`${prefix}review-from-surah`).onchange = (e) => { state.review.fromSurah = Number(e.target.value); onInputChange(); };
       document.getElementById(`${prefix}review-to-surah`).onchange = (e) => { state.review.toSurah = Number(e.target.value); onInputChange(); };
     }
-    document.getElementById(`${prefix}review-duration-value`).oninput = (e) => { state.review.durationValue = e.target.value; onInputChange(); };
-    document.getElementById(`${prefix}review-duration-unit`).onchange = (e) => { state.review.durationUnit = e.target.value; onInputChange(); };
+
+    if (r.cyclicMode) {
+      document.getElementById(`${prefix}review-cycle-value`).oninput = (e) => { state.review.cycleValue = e.target.value; onInputChange(); };
+      document.getElementById(`${prefix}review-cycle-unit`).onchange = (e) => { state.review.cycleUnit = e.target.value; onInputChange(); };
+      document.getElementById(`${prefix}review-program-value`).oninput = (e) => { state.review.programValue = e.target.value; onInputChange(); };
+      document.getElementById(`${prefix}review-program-unit`).onchange = (e) => { state.review.programUnit = e.target.value; onInputChange(); };
+    } else {
+      document.getElementById(`${prefix}review-duration-value`).oninput = (e) => { state.review.durationValue = e.target.value; onInputChange(); };
+      document.getElementById(`${prefix}review-duration-unit`).onchange = (e) => { state.review.durationUnit = e.target.value; onInputChange(); };
+    }
     document.getElementById(`${prefix}review-rest-day`).onchange = (e) => { state.review.restDay = e.target.value; onInputChange(); };
   }
 
@@ -726,14 +795,45 @@
     const r = state.review;
     const range = computeRange(r);
     const totalPages = range.to - range.from + 1;
-    const totalDays = computeTotalDays(r);
-    const schedule = computeSchedule(r, totalPages, totalDays);
 
     const hintEl = document.getElementById("review-range-hint");
     if (hintEl) {
       hintEl.textContent = `النطاق المحدد: من الصفحة ${range.from} إلى الصفحة ${range.to} (${totalPages} صفحة)` +
         (r.rangeMode === "surah" ? " — تقريبي حسب الطبعة الشائعة ذات ٦٠٤ صفحة" : "");
     }
+
+    if (r.cyclicMode) {
+      const cycleDays = computeCycleDays(r);
+      const programDays = computeProgramDays(r);
+      const cycleSchedule = computeSchedule(r, totalPages, cycleDays);
+      const numCycles = Math.max(Math.round(programDays / cycleDays), 1);
+      const programFinish = addDays(new Date(), programDays);
+
+      const firstCycle = buildDailyAssignments(range.from, range.to, cycleDays, r.restDay, new Date());
+      const weekGridHTML = firstCycle.map((d) => `
+        <div class="day-card${d.isRest ? " day-rest" : ""}">
+          <span class="day-name">${WEEK_DAYS[(d.date.getDay() + 1) % 7]}</span>
+          <span class="day-pages">${d.isRest ? "راحة" : (d.isFilled || d.fromPage == null ? "✓ تمّ" : `${d.fromPage}-${d.toPage}`)}</span>
+        </div>`).join("");
+
+      const html = `
+        <div class="stats-grid">
+          ${statCardHTML(cycleSchedule.perDay, "صفحة يومياً بالدورة")}
+          ${statCardHTML(cycleDays, "يوماً لكل دورة")}
+          ${statCardHTML(numCycles, "دورة ختم بالبرنامج")}
+        </div>
+        ${inspireHTML(`ستتكرر دورة ختم هذا النطاق كل ${cycleDays} يوماً على مدار البرنامج حتى ${formatDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`)}
+        <div class="week-table card">
+          <h3 class="week-title">جدول الدورة الواحدة (تتكرر تلقائياً)</h3>
+          <div class="week-grid">${weekGridHTML}</div>
+        </div>
+      `;
+      document.getElementById("review-results").innerHTML = html;
+      return;
+    }
+
+    const totalDays = computeTotalDays(r);
+    const schedule = computeSchedule(r, totalPages, totalDays);
 
     const weekGridHTML = schedule.weekPlan.map((d) => `
       <div class="day-card${d.isRest ? " day-rest" : ""}">
@@ -794,25 +894,47 @@
 
     const range = computeRange(r);
     const totalPages = range.to - range.from + 1;
-    const totalDays = computeTotalDays(r);
-    const schedule = computeSchedule(r, totalPages, totalDays);
 
-    const weekGridHTML = schedule.weekPlan.map((d) => `
-      <div class="day-card${d.isRest ? " day-rest" : ""}">
-        <span class="day-name">${d.day}</span>
-        <span class="day-pages">حفظ: ${memoPerDay.toFixed(1)}</span>
-        <span class="day-pages" style="margin-top:2px;">${d.isRest ? "راحة مراجعة" : `مراجعة: ${d.pages}`}</span>
-      </div>`).join("");
+    let reviewStatCardHTML, weekGridHTML, reviewInspireText;
+    if (r.cyclicMode) {
+      const cycleDays = computeCycleDays(r);
+      const programDays = computeProgramDays(r);
+      const cycleSchedule = computeSchedule(r, totalPages, cycleDays);
+      const numCycles = Math.max(Math.round(programDays / cycleDays), 1);
+      const programFinish = addDays(new Date(), programDays);
+      const firstCycle = buildDailyAssignments(range.from, range.to, cycleDays, r.restDay, new Date());
+
+      weekGridHTML = firstCycle.map((d) => `
+        <div class="day-card${d.isRest ? " day-rest" : ""}">
+          <span class="day-name">${WEEK_DAYS[(d.date.getDay() + 1) % 7]}</span>
+          <span class="day-pages">حفظ: ${memoPerDay.toFixed(1)}</span>
+          <span class="day-pages" style="margin-top:2px;">${d.isRest ? "راحة مراجعة" : (d.isFilled || d.fromPage == null ? "✓ تمّ" : `مراجعة: ${d.fromPage}-${d.toPage}`)}</span>
+        </div>`).join("");
+      reviewStatCardHTML = statCardHTML(cycleDays, "يوماً لكل دورة مراجعة");
+      reviewInspireText = `وستتكرر دورة مراجعة هذا النطاق كل ${cycleDays} يوماً حتى ${formatDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`;
+    } else {
+      const totalDays = computeTotalDays(r);
+      const schedule = computeSchedule(r, totalPages, totalDays);
+
+      weekGridHTML = schedule.weekPlan.map((d) => `
+        <div class="day-card${d.isRest ? " day-rest" : ""}">
+          <span class="day-name">${d.day}</span>
+          <span class="day-pages">حفظ: ${memoPerDay.toFixed(1)}</span>
+          <span class="day-pages" style="margin-top:2px;">${d.isRest ? "راحة مراجعة" : `مراجعة: ${d.pages}`}</span>
+        </div>`).join("");
+      reviewStatCardHTML = statCardHTML(schedule.perDay, "صفحة مراجعة يومياً");
+      reviewInspireText = `وستختم مراجعة هذا النطاق بتاريخ ${formatDate(schedule.finishDate)}، بإذن الله`;
+    }
 
     const html = `
       <div class="stats-grid">
         ${statCardHTML(memoPerDay.toFixed(2), "صفحة حفظ يومياً")}
-        ${statCardHTML(schedule.perDay, "صفحة مراجعة يومياً")}
+        ${reviewStatCardHTML}
         ${statCardHTML(totalPages, "صفحات نطاق المراجعة")}
       </div>
       <div class="inspire-card">
         <span class="inspire-icon">✦</span>
-        <p>ستختم حفظ القرآن الكريم بتاريخ ${formatDate(memoFinish)}، وستختم مراجعة هذا النطاق بتاريخ ${formatDate(schedule.finishDate)}، بإذن الله</p>
+        <p>ستختم حفظ القرآن الكريم بتاريخ ${formatDate(memoFinish)}، ${reviewInspireText}</p>
       </div>
       <div class="week-table card">
         <h3 class="week-title">نظرة أسبوعية سريعة (حفظ + مراجعة)</h3>
@@ -923,6 +1045,21 @@
     return days;
   }
 
+  // Repeats a single review cycle (start -> end, ختم واحد) back-to-back until totalDays is covered.
+  // Each cycle restarts the page range from the beginning, exactly like a recurring "ختم" of the same portion.
+  function buildCyclicAssignments(fromPage, toPage, cycleDays, totalDays, restDayName, startDateObj) {
+    const days = [];
+    let offset = 0;
+    while (offset < totalDays) {
+      const chunkLen = Math.min(cycleDays, totalDays - offset);
+      const chunkStart = addDays(startDateObj, offset);
+      const chunkDays = buildDailyAssignments(fromPage, toPage, chunkLen, restDayName, chunkStart);
+      days.push(...chunkDays);
+      offset += chunkLen;
+    }
+    return days;
+  }
+
   // Figures out the current plan's daily assignments based on the active tab
   function getActivePlanAssignments() {
     const today = new Date();
@@ -940,6 +1077,17 @@
     } else {
       const r = state.review;
       const range = computeRange(r);
+      if (r.cyclicMode) {
+        const cycleDays = computeCycleDays(r);
+        const totalDays = computeProgramDays(r);
+        const numCycles = Math.max(Math.round(totalDays / cycleDays), 1);
+        const days = buildCyclicAssignments(range.from, range.to, cycleDays, totalDays, r.restDay, today);
+        return {
+          days,
+          title: "جدول المراجعة الدوري",
+          subtitle: `تكرار ختم الصفحات من ${range.from} إلى ${range.to} كل ${cycleDays} يوماً — ${numCycles} دورة تقريباً`,
+        };
+      }
       const totalDays = computeTotalDays(r);
       const days = buildDailyAssignments(range.from, range.to, totalDays, r.restDay, today);
       return { days, title: "جدول المراجعة", subtitle: `مراجعة الصفحات من ${range.from} إلى ${range.to} خلال ${totalDays} يوماً` };
@@ -957,8 +1105,18 @@
 
     const r = state.review;
     const range = computeRange(r);
-    const reviewTotalDays = computeTotalDays(r);
-    const reviewDays = buildDailyAssignments(range.from, range.to, reviewTotalDays, r.restDay, today);
+    let reviewDays, reviewSubtitle;
+    if (r.cyclicMode) {
+      const cycleDays = computeCycleDays(r);
+      const programDays = computeProgramDays(r);
+      const numCycles = Math.max(Math.round(programDays / cycleDays), 1);
+      reviewDays = buildCyclicAssignments(range.from, range.to, cycleDays, programDays, r.restDay, today);
+      reviewSubtitle = `مع تكرار ختم مراجعة الصفحات من ${range.from} إلى ${range.to} كل ${cycleDays} يوماً (${numCycles} دورة تقريباً)`;
+    } else {
+      const reviewTotalDays = computeTotalDays(r);
+      reviewDays = buildDailyAssignments(range.from, range.to, reviewTotalDays, r.restDay, today);
+      reviewSubtitle = `ومراجعة الصفحات من ${range.from} إلى ${range.to}`;
+    }
 
     const totalDays = Math.max(memoDays.length, reviewDays.length);
     const days = [];
@@ -973,7 +1131,7 @@
     return {
       days,
       title: "الخطة الشاملة (حفظ ومراجعة)",
-      subtitle: `حفظ القرآن كاملاً، ومراجعة الصفحات من ${range.from} إلى ${range.to}`,
+      subtitle: `حفظ القرآن كاملاً، ${reviewSubtitle}`,
     };
   }
 
@@ -1046,7 +1204,7 @@
           <div class="cal-month-badge">${ARABIC_MONTHS[month]} ${year}</div>
         </div>
         <div class="cal-grid">${dowHeader}${cells}</div>
-        <p class="cal-page-footer">﷽ — خطة القرآن</p>
+        <p class="cal-page-footer">﷽ — خطة القرآن الكريم</p>
       </div>
     `;
   }
