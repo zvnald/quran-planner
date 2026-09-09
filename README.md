@@ -353,27 +353,31 @@
     pointer-events: none;
   }
   #pdf-calendar-root {
-    width: 780px;
+    width: 1200px;
     background: var(--paper);
   }
   @media print {
     #pdf-calendar-wrap { display: none !important; }
   }
   .cal-page {
-    width: 780px;
-    min-height: 1040px;
+    width: 1200px;
+    height: 849px;
     background: var(--paper);
-    padding: 34px 30px 26px;
+    padding: 30px 34px 20px;
     font-family: 'Tajawal', sans-serif;
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
   .cal-page-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     border-bottom: 2px solid var(--sand);
-    padding-bottom: 14px;
-    margin-bottom: 18px;
+    padding-bottom: 12px;
+    margin-bottom: 14px;
+    flex: 0 0 auto;
   }
   .cal-plan-title { font-family: 'Amiri', serif; font-weight: 700; font-size: 1.35rem; color: var(--coffee); margin: 0; }
   .cal-plan-sub { font-size: 0.8rem; color: var(--cinnamon); margin: 3px 0 0; }
@@ -387,10 +391,17 @@
     border-radius: 999px;
     box-shadow: 0 6px 14px rgba(43,28,19,0.25);
   }
-  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+  .cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    grid-template-rows: auto repeat(6, 1fr);
+    gap: 8px;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
   .cal-dow {
     text-align: center;
-    font-size: 0.78rem;
+    font-size: 0.82rem;
     font-weight: 700;
     color: var(--cinnamon);
     padding-bottom: 4px;
@@ -398,8 +409,9 @@
   .cal-cell {
     border: 1.5px solid var(--sand);
     border-radius: 12px;
-    min-height: 96px;
-    padding: 7px 8px;
+    min-height: 0;
+    height: 100%;
+    padding: 8px 10px;
     background: var(--paper);
     display: flex;
     flex-direction: column;
@@ -423,7 +435,7 @@
   .cal-task.cal-task-rest { color: var(--cinnamon); background: transparent; border-style: dashed; }
 
   /* ---- Combined (memorize + review) calendar cell ---- */
-  .cal-cell.cal-cell-combined { min-height: 118px; }
+  .cal-cell.cal-cell-combined { min-height: 0; }
   .cal-task-group { display: flex; flex-direction: column; gap: 4px; }
   .cal-task-mini {
     font-size: 0.62rem;
@@ -439,10 +451,11 @@
   .cal-task-mini.review.is-rest { color: var(--cinnamon); background: transparent; }
 
   .cal-page-footer {
-    margin-top: 16px;
+    margin-top: 10px;
     text-align: center;
     font-size: 0.72rem;
     color: var(--caramel);
+    flex: 0 0 auto;
   }
 </style>
 </head>
@@ -1036,6 +1049,11 @@
     const perDay = perWeek / activeDaysPerWeek; // pages per active memorization day
     return { totalWeeks, totalDays, totalYears, perDay, finishDate: addDays(getPlanStartDate(), totalDays), remaining };
   }
+  // مدة خطة الحفظ بالأيام (تُستخدم لربط نهاية المراجعة بنهاية خطة الحفظ)
+  function getMemoProgramDays(m) {
+    const totalDays = (m.mode === "duration") ? computeDuration(m).totalDays : computePace(m).totalDays;
+    return Math.max(Math.round(totalDays), 1);
+  }
 
   function buildMemoFormHTML(m, prefix) {
     let formHTML = "";
@@ -1283,8 +1301,11 @@
     const targetJDN = r.calendarType === "hijri" ? hijriToJDN(parts.year, parts.month, parts.day) : gregorianToJDN(parts.year, parts.month, parts.day);
     return Math.max(targetJDN - startJDN, 1);
   }
-  // Resolves the cyclic program's total length in days, whichever end-mode is active
+  // Resolves the cyclic/repeating program's total length in days, whichever end-mode is active.
+  // "withMemo" ties the review program's end to however long the memorization plan (state.memo)
+  // takes to finish — e.g. memorization finishing in a month stops the review after that same month.
   function getProgramDays(r) {
+    if (r.endMode === "withMemo") return getMemoProgramDays(state.memo);
     return r.endMode === "date" ? computeProgramDaysFromEndDate(r) : computeProgramDays(r);
   }
   function computeSchedule(r, totalPages, totalDays) {
@@ -1362,15 +1383,18 @@
   // "طريقة تحديد نهاية برنامج المراجعة" (duration vs. specific end-date) + the matching fields.
   // Shared between the forward cyclic-review mode and the reverse-review-with-repeat mode, since
   // both need the exact same "how long should this keep repeating" setting.
-  function buildProgramDurationFieldsHTML(r, prefix) {
+  function buildProgramDurationFieldsHTML(r, prefix, showWithMemoOption) {
     return `
       <label class="field-label" style="margin-top:0.9rem;">طريقة تحديد نهاية برنامج المراجعة</label>
       <div class="mode-switch">
-        <button class="mode-btn${r.endMode !== "date" ? " active" : ""}" id="${prefix}review-endmode-duration">مدة زمنية</button>
+        <button class="mode-btn${r.endMode !== "date" && r.endMode !== "withMemo" ? " active" : ""}" id="${prefix}review-endmode-duration">مدة زمنية</button>
         <button class="mode-btn${r.endMode === "date" ? " active" : ""}" id="${prefix}review-endmode-date">تاريخ انتهاء محدد</button>
+        ${showWithMemoOption ? `<button class="mode-btn${r.endMode === "withMemo" ? " active" : ""}" id="${prefix}review-endmode-withmemo">مع نهاية خطة الحفظ</button>` : ""}
       </div>
 
-      ${r.endMode === "date" ? buildEndDatePickerHTML(r, prefix) : `
+      ${r.endMode === "date" ? buildEndDatePickerHTML(r, prefix) : r.endMode === "withMemo" && showWithMemoOption ? `
+      <p class="hint" style="margin-top:0.6rem;">ستتوقف المراجعة تلقائياً بمجرد انتهاء خطة الحفظ الحالية (بعد ${getMemoProgramDays(state.memo)} يوماً، بتاريخ ${formatDualDate(addDays(getPlanStartDate(), getMemoProgramDays(state.memo)))})، حتى لو لم تكتمل دورة المراجعة الجارية.</p>
+      ` : `
       <label class="field-label" style="margin-top:0.9rem;">المدة الإجمالية للبرنامج (تكرار المراجعة حتى)</label>
       <div class="field-row">
         <div class="field-group">
@@ -1385,7 +1409,7 @@
       </div>`}
     `;
   }
-  function bindProgramDurationFieldEvents(prefix, onModeChange, onInputChange) {
+  function bindProgramDurationFieldEvents(prefix, onModeChange, onInputChange, showWithMemoOption) {
     const debouncedInputChange = debounce(onInputChange, 200);
     const r = state.review;
     document.getElementById(`${prefix}review-endmode-duration`).onclick = () => { state.review.endMode = "duration"; onModeChange(); };
@@ -1394,6 +1418,10 @@
       state.review.endMode = "date";
       onModeChange();
     };
+    if (showWithMemoOption) {
+      const withMemoBtn = document.getElementById(`${prefix}review-endmode-withmemo`);
+      if (withMemoBtn) withMemoBtn.onclick = () => { state.review.endMode = "withMemo"; onModeChange(); };
+    }
     if (r.endMode === "date") {
       if (!state.review.endDate) state.review.endDate = defaultEndDateParts(state.review.calendarType);
       document.getElementById(`${prefix}review-caltype-gregorian`).onclick = () => {
@@ -1412,7 +1440,7 @@
         onModeChange(); // شهر جديد قد يغيّر عدد الأيام المتاحة
       };
       document.getElementById(`${prefix}review-end-year`).onchange = (e) => { state.review.endDate.year = Number(e.target.value); onInputChange(); };
-    } else {
+    } else if (!(r.endMode === "withMemo" && showWithMemoOption)) {
       document.getElementById(`${prefix}review-program-value`).oninput = (e) => { state.review.programValue = e.target.value; debouncedInputChange(); };
       document.getElementById(`${prefix}review-program-unit`).onchange = (e) => { state.review.programUnit = e.target.value; onInputChange(); };
     }
@@ -1464,7 +1492,7 @@
           </div>
         </div>
 
-        ${buildProgramDurationFieldsHTML(r, prefix)}
+        ${buildProgramDurationFieldsHTML(r, prefix, prefix === "c-")}
 
         <p class="hint">سيتكرر ختم هذا النطاق تلقائياً بنفس الدورة حتى نهاية البرنامج، وينعكس هذا التكرار كاملاً على تقويم PDF. ملاحظة: تتوقف المراجعة فوراً عند بلوغ تاريخ الانتهاء، حتى لو لم تكتمل الدورة الجارية.</p>
         ${reviewDaysSelectHTML}
@@ -1483,7 +1511,7 @@
           <button class="mode-btn${r.reverseRepeat ? " active" : ""}" id="${prefix}review-repeat-on">تكرار المراجعة الدوري (نفس المراجعة)</button>
         </div>
 
-        ${r.reverseRepeat ? buildProgramDurationFieldsHTML(r, prefix) : ""}
+        ${r.reverseRepeat ? buildProgramDurationFieldsHTML(r, prefix, prefix === "c-") : ""}
 
         <p class="hint">${r.reverseRepeat
           ? `ستبدأ الخطة من الصفحة ${rangeForHints.to} وتتراجع تنازلياً حتى الصفحة ${rangeForHints.from}، ثم تعيد نفس المراجعة العكسية من جديد تلقائياً حتى نهاية البرنامج.`
@@ -1550,13 +1578,13 @@
     if (r.cyclicMode) {
       document.getElementById(`${prefix}review-cycle-value`).oninput = (e) => { state.review.cycleValue = e.target.value; debouncedInputChange(); };
       document.getElementById(`${prefix}review-cycle-unit`).onchange = (e) => { state.review.cycleUnit = e.target.value; onInputChange(); };
-      bindProgramDurationFieldEvents(prefix, onModeChange, onInputChange);
+      bindProgramDurationFieldEvents(prefix, onModeChange, onInputChange, prefix === "c-");
     } else if (r.reverseMode) {
       document.getElementById(`${prefix}review-reverse-pages`).oninput = (e) => { state.review.reversePagesPerDay = e.target.value; debouncedInputChange(); };
       document.getElementById(`${prefix}review-repeat-off`).onclick = () => { state.review.reverseRepeat = false; onModeChange(); };
       document.getElementById(`${prefix}review-repeat-on`).onclick = () => { state.review.reverseRepeat = true; onModeChange(); };
       if (r.reverseRepeat) {
-        bindProgramDurationFieldEvents(prefix, onModeChange, onInputChange);
+        bindProgramDurationFieldEvents(prefix, onModeChange, onInputChange, prefix === "c-");
       }
     } else {
       document.getElementById(`${prefix}review-duration-value`).oninput = (e) => { state.review.durationValue = e.target.value; debouncedInputChange(); };
@@ -1602,6 +1630,8 @@
 
       const endText = r.endMode === "date"
         ? `حتى تاريخ الانتهاء المحدد: ${formatDualDate(programFinish)} (${numCycles} دورة تقريباً)، وستتوقف المراجعة فور بلوغ هذا التاريخ`
+        : r.endMode === "withMemo"
+        ? `حتى انتهاء خطة الحفظ بتاريخ ${formatDualDate(programFinish)} (${numCycles} دورة تقريباً)، وستتوقف المراجعة فوراً عند ذلك حتى لو لم تكتمل الدورة الجارية`
         : `على مدار البرنامج حتى ${formatDualDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`;
 
       const html = `
@@ -1628,6 +1658,8 @@
         const schedTableHTML = buildUpcomingScheduleTableHTML(reverseDays, { title: "النطاق اليومي والتواريخ (عكسية متكررة)" });
         const endText = r.endMode === "date"
           ? `حتى تاريخ الانتهاء المحدد: ${formatDualDate(programFinish)}، وستتوقف المراجعة فور بلوغ هذا التاريخ`
+          : r.endMode === "withMemo"
+          ? `حتى انتهاء خطة الحفظ بتاريخ ${formatDualDate(programFinish)}، وستتوقف فوراً عند ذلك`
           : `على مدار البرنامج حتى ${formatDualDate(programFinish)} بإذن الله`;
 
         const html = `
@@ -1734,6 +1766,8 @@
       reviewStatCardHTML = statCardHTML(cycleDays, "يوماً لكل دورة مراجعة");
       reviewInspireText = r.endMode === "date"
         ? `وستتكرر دورة مراجعة هذا النطاق كل ${cycleDays} يوماً حتى تتوقف فوراً بتاريخ ${formatDualDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`
+        : r.endMode === "withMemo"
+        ? `وستتكرر دورة مراجعة هذا النطاق كل ${cycleDays} يوماً حتى تتوقف تلقائياً مع انتهاء خطة الحفظ بتاريخ ${formatDualDate(programFinish)} (${numCycles} دورة تقريباً)`
         : `وستتكرر دورة مراجعة هذا النطاق كل ${cycleDays} يوماً حتى ${formatDualDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`;
     } else if (r.reverseMode && r.reverseRepeat) {
       const perDay = Math.max(Math.round(Number(r.reversePagesPerDay) || 1), 1);
@@ -2096,6 +2130,8 @@
       if (sched.kind === "cyclic") {
         const endText = r.endMode === "date"
           ? `حتى ${formatDualDate(addDays(today, sched.programDays))}`
+          : r.endMode === "withMemo"
+          ? `حتى انتهاء خطة الحفظ (${formatDualDate(addDays(today, sched.programDays))})`
           : `${sched.numCycles} دورة تقريباً`;
         return {
           days: sched.days,
@@ -2106,6 +2142,8 @@
       if (sched.kind === "reverse-repeat") {
         const endText = r.endMode === "date"
           ? `حتى ${formatDualDate(addDays(today, sched.programDays))}`
+          : r.endMode === "withMemo"
+          ? `حتى انتهاء خطة الحفظ (${formatDualDate(addDays(today, sched.programDays))})`
           : `على مدار البرنامج`;
         return {
           days: sched.days,
@@ -2141,11 +2179,15 @@
     if (sched.kind === "cyclic") {
       const endText = r.endMode === "date"
         ? `حتى ${formatDualDate(addDays(today, sched.programDays))}`
+        : r.endMode === "withMemo"
+        ? `تتوقف مع انتهاء خطة الحفظ بتاريخ ${formatDualDate(addDays(today, sched.programDays))}`
         : `${sched.numCycles} دورة تقريباً`;
       reviewSubtitle = `مع تكرار ختم مراجعة الصفحات من ${range.from} إلى ${range.to} كل ${sched.cycleDays} يوماً (${endText})`;
     } else if (sched.kind === "reverse-repeat") {
       const endText = r.endMode === "date"
         ? `حتى ${formatDualDate(addDays(today, sched.programDays))}`
+        : r.endMode === "withMemo"
+        ? `تتوقف مع انتهاء خطة الحفظ بتاريخ ${formatDualDate(addDays(today, sched.programDays))}`
         : `على مدار البرنامج`;
       reviewSubtitle = `ومع تكرار مراجعة عكسية تنازلية من الصفحة ${range.to} إلى الصفحة ${range.from} بمعدل ${sched.perDay} صفحة يومياً (${endText})`;
     } else if (sched.kind === "reverse") {
@@ -2228,6 +2270,10 @@
         </div>`;
       }
     }
+    // Pad out to exactly 6 full weeks (42 cells) so the grid always matches the
+    // fixed CSS row template and never leaves blank space at the page bottom.
+    let totalCells = firstDow + daysInMonth;
+    while (totalCells < 42) { cells += `<div class="cal-cell cal-empty"></div>`; totalCells++; }
 
     const dowHeader = WEEK_DAYS.map((d) => `<div class="cal-dow">${d}</div>`).join("");
 
@@ -2307,6 +2353,10 @@
         </div>
       </div>`;
     }
+    // Pad out to exactly 6 full weeks (42 cells) so the grid always matches the
+    // fixed CSS row template and never leaves blank space at the page bottom.
+    let totalCellsC = firstDow + daysInMonth;
+    while (totalCellsC < 42) { cells += `<div class="cal-cell cal-empty"></div>`; totalCellsC++; }
 
     const dowHeader = WEEK_DAYS.map((d) => `<div class="cal-dow">${d}</div>`).join("");
 
@@ -2363,7 +2413,7 @@
       const scale = months.length > 18 ? 1.25 : months.length > 8 ? 1.5 : 2;
 
       const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
 
@@ -2381,10 +2431,12 @@
         });
 
         const imgData = canvas.toDataURL("image/png");
-        const imgHeight = (canvas.height * pageWidth) / canvas.width;
 
+        // Stretch the page image to cover the PDF page edge-to-edge (full bleed),
+        // since .cal-page is authored at the same aspect ratio as A4 landscape —
+        // this guarantees no blank strips or leftover empty margins on any page.
         if (i > 0) pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, 0, pageWidth, Math.min(imgHeight, pageHeight));
+        pdf.addImage(imgData, "PNG", 0, 0, pageWidth, pageHeight);
 
         // Release this month's canvas/DOM immediately instead of waiting until the
         // very end — keeps memory use flat regardless of how many months there are.
