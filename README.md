@@ -4,6 +4,16 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>خطة القرآن الكريم</title>
+
+<!-- PWA: manifest + icons + platform meta tags so the plan can be "installed" as an app -->
+<link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogItiu2LfYqSDYp9mE2YLYsdii2YYg2KfZhNmD2LHZitmFIC0g2K3Zgdi4INmI2YXYsdin2KzYudipIiwKICAic2hvcnRfbmFtZSI6ICLYrti32Kkg2KfZhNmC2LHYotmGIiwKICAiZGVzY3JpcHRpb24iOiAi2KrYt9io2YrZgiDZhNiq2K7Yt9mK2Lcg2K3Zgdi4INmI2YXYsdin2KzYudipINin2YTZgtix2KLZhiDYp9mE2YPYsdmK2YUiLAogICJzdGFydF91cmwiOiAiLiIsCiAgInNjb3BlIjogIi4iLAogICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICJvcmllbnRhdGlvbiI6ICJwb3J0cmFpdCIsCiAgImJhY2tncm91bmRfY29sb3IiOiAiI2ZmZmRmYSIsCiAgInRoZW1lX2NvbG9yIjogIiM0YTMwMjAiLAogICJkaXIiOiAicnRsIiwKICAibGFuZyI6ICJhciIsCiAgImljb25zIjogWwogICAgeyAic3JjIjogImRhdGE6aW1hZ2Uvc3ZnK3htbDtiYXNlNjQsUEhOMlp5QjRiV3h1Y3owaWFIUjBjRG92TDNkM2R5NTNNeTV2Y21jdk1qQXdNQzl6ZG1jaUlIWnBaWGRDYjNnOUlqQWdNQ0ExTVRJZ05URXlJajRLSUNBOFpHVm1jejRLSUNBZ0lEeHNhVzVsWVhKSGNtRmthV1Z1ZENCcFpEMGlaeUlnZURFOUlqQWlJSGt4UFNJd0lpQjRNajBpTVNJZ2VUSTlJakVpUGdvZ0lDQWdJQ0E4YzNSdmNDQnZabVp6WlhROUlqQWlJSE4wYjNBdFkyOXNiM0k5SWlNM1lUVXlNellpTHo0S0lDQWdJQ0FnUEhOMGIzQWdiMlptYzJWMFBTSXhJaUJ6ZEc5d0xXTnZiRzl5UFNJak1tSXhZekV6SWk4K0NpQWdJQ0E4TDJ4cGJtVmhja2R5WVdScFpXNTBQZ29nSUR3dlpHVm1jejRLSUNBOGNtVmpkQ0IzYVdSMGFEMGlOVEV5SWlCb1pXbG5hSFE5SWpVeE1pSWdjbmc5SWprMklpQm1hV3hzUFNKMWNtd29JMmNwSWk4K0NpQWdQSFJsZUhRZ2VEMGlNalUySWlCNVBTSXpOREFpSUdadmJuUXRjMmw2WlQwaU1qY3dJaUIwWlhoMExXRnVZMmh2Y2owaWJXbGtaR3hsSWlCbWFXeHNQU0lqWmpabFptVXpJaUJtYjI1MExXWmhiV2xzZVQwaVIyVnZjbWRwWVN3Z0oxUnBiV1Z6SUU1bGR5QlNiMjFoYmljc0lITmxjbWxtSWlCbWIyNTBMWGRsYVdkb2REMGlOekF3SWo3Wmdqd3ZkR1Y0ZEQ0S1BDOXpkbWMrQ2c9PSIsICJzaXplcyI6ICIxOTJ4MTkyIiwgInR5cGUiOiAiaW1hZ2Uvc3ZnK3htbCIsICJwdXJwb3NlIjogImFueSIgfSwKICAgIHsgInNyYyI6ICJkYXRhOmltYWdlL3N2Zyt4bWw7YmFzZTY0LFBITjJaeUI0Yld4dWN6MGlhSFIwY0RvdkwzZDNkeTUzTXk1dmNtY3ZNakF3TUM5emRtY2lJSFpwWlhkQ2IzZzlJakFnTUNBMU1USWdOVEV5SWo0S0lDQThaR1ZtY3o0S0lDQWdJRHhzYVc1bFlYSkhjbUZrYVdWdWRDQnBaRDBpWnlJZ2VERTlJakFpSUhreFBTSXdJaUI0TWowaU1TSWdlVEk5SWpFaVBnb2dJQ0FnSUNBOGMzUnZjQ0J2Wm1aelpYUTlJakFpSUhOMGIzQXRZMjlzYjNJOUlpTTNZVFV5TXpZaUx6NEtJQ0FnSUNBZ1BITjBiM0FnYjJabWMyVjBQU0l4SWlCemRHOXdMV052Ykc5eVBTSWpNbUl4WXpFeklpOCtDaUFnSUNBOEwyeHBibVZoY2tkeVlXUnBaVzUwUGdvZ0lEd3ZaR1ZtY3o0S0lDQThjbVZqZENCM2FXUjBhRDBpTlRFeUlpQm9aV2xuYUhROUlqVXhNaUlnY25nOUlqazJJaUJtYVd4c1BTSjFjbXdvSTJjcElpOCtDaUFnUEhSbGVIUWdlRDBpTWpVMklpQjVQU0l6TkRBaUlHWnZiblF0YzJsNlpUMGlNamN3SWlCMFpYaDBMV0Z1WTJodmNqMGliV2xrWkd4bElpQm1hV3hzUFNJalpqWmxabVV6SWlCbWIyNTBMV1poYldsc2VUMGlSMlZ2Y21kcFlTd2dKMVJwYldWeklFNWxkeUJTYjIxaGJpY3NJSE5sY21sbUlpQm1iMjUwTFhkbGFXZG9kRDBpTnpBd0lqN1pnand2ZEdWNGRENEtQQzl6ZG1jK0NnPT0iLCAic2l6ZXMiOiAiNTEyeDUxMiIsICJ0eXBlIjogImltYWdlL3N2Zyt4bWwiLCAicHVycG9zZSI6ICJhbnkiIH0sCiAgICB7ICJzcmMiOiAiZGF0YTppbWFnZS9zdmcreG1sO2Jhc2U2NCxQSE4yWnlCNGJXeHVjejBpYUhSMGNEb3ZMM2QzZHk1M015NXZjbWN2TWpBd01DOXpkbWNpSUhacFpYZENiM2c5SWpBZ01DQTFNVElnTlRFeUlqNEtJQ0E4WkdWbWN6NEtJQ0FnSUR4c2FXNWxZWEpIY21Ga2FXVnVkQ0JwWkQwaVp5SWdlREU5SWpBaUlIa3hQU0l3SWlCNE1qMGlNU0lnZVRJOUlqRWlQZ29nSUNBZ0lDQThjM1J2Y0NCdlptWnpaWFE5SWpBaUlITjBiM0F0WTI5c2IzSTlJaU0zWVRVeU16WWlMejRLSUNBZ0lDQWdQSE4wYjNBZ2IyWm1jMlYwUFNJeElpQnpkRzl3TFdOdmJHOXlQU0lqTW1JeFl6RXpJaTgrQ2lBZ0lDQThMMnhwYm1WaGNrZHlZV1JwWlc1MFBnb2dJRHd2WkdWbWN6NEtJQ0E4Y21WamRDQjNhV1IwYUQwaU5URXlJaUJvWldsbmFIUTlJalV4TWlJZ2NuZzlJamsySWlCbWFXeHNQU0oxY213b0kyY3BJaTgrQ2lBZ1BIUmxlSFFnZUQwaU1qVTJJaUI1UFNJek5EQWlJR1p2Ym5RdGMybDZaVDBpTWpjd0lpQjBaWGgwTFdGdVkyaHZjajBpYldsa1pHeGxJaUJtYVd4c1BTSWpaalpsWm1VeklpQm1iMjUwTFdaaGJXbHNlVDBpUjJWdmNtZHBZU3dnSjFScGJXVnpJRTVsZHlCU2IyMWhiaWNzSUhObGNtbG1JaUJtYjI1MExYZGxhV2RvZEQwaU56QXdJajdaZ2p3dmRHVjRkRDRLUEM5emRtYytDZz09IiwgInNpemVzIjogIjUxMng1MTIiLCAidHlwZSI6ICJpbWFnZS9zdmcreG1sIiwgInB1cnBvc2UiOiAibWFza2FibGUiIH0KICBdCn0K" />
+<meta name="theme-color" content="#4a3020" />
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM3YTUyMzYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMmIxYzEzIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9Ijk2IiBmaWxsPSJ1cmwoI2cpIi8+CiAgPHRleHQgeD0iMjU2IiB5PSIzNDAiIGZvbnQtc2l6ZT0iMjcwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjZjZlZmUzIiBmb250LWZhbWlseT0iR2VvcmdpYSwgJ1RpbWVzIE5ldyBSb21hbicsIHNlcmlmIiBmb250LXdlaWdodD0iNzAwIj7ZgjwvdGV4dD4KPC9zdmc+Cg==" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM3YTUyMzYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMmIxYzEzIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9Ijk2IiBmaWxsPSJ1cmwoI2cpIi8+CiAgPHRleHQgeD0iMjU2IiB5PSIzNDAiIGZvbnQtc2l6ZT0iMjcwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjZjZlZmUzIiBmb250LWZhbWlseT0iR2VvcmdpYSwgJ1RpbWVzIE5ldyBSb21hbicsIHNlcmlmIiBmb250LXdlaWdodD0iNzAwIj7ZgjwvdGV4dD4KPC9zdmc+Cg==" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="خطة القرآن" />
+<meta name="mobile-web-app-capable" content="yes" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
@@ -466,6 +476,7 @@
       <div class="ornament">﷽</div>
       <h1>خطة القرآن الكريم</h1>
       <p>خطط حفظك ومراجعتك للقرآن الكريم بخطوات واضحة</p>
+      <button class="action-btn secondary" id="btn-install-app" style="display:none; margin-top:0.6rem;">📲 تثبيت كتطبيق على الجهاز</button>
     </header>
 
     <div id="start-date-card"></div>
@@ -1635,7 +1646,9 @@
       const planStart = getPlanStartDate();
       const programFinish = addDays(planStart, programDays);
       const memoDays = getMemoDaysForGrowth();
-      const finalToPage = getGrowingReviewFinalToPage(range.to, memoDays);
+      const finalSegments = getGrowingReviewFinalSegments(range.from, range.to, memoDays);
+      const finalPageCount = getGrowingReviewFinalPageCount(range.from, range.to, memoDays);
+      const finalDesc = describeReviewSegments(finalSegments);
 
       const firstCycle = buildDailyAssignments(range.from, range.to, cycleDays, getEffectiveActiveDays(r), planStart);
       const cycleSchedule = computeSchedule(r, totalPages, cycleDays);
@@ -1651,9 +1664,9 @@
         <div class="stats-grid">
           ${statCardHTML(cycleSchedule.perDay, "صفحة يومياً في الدورة الأولى")}
           ${statCardHTML(cycleDays, "يوماً لكل دورة")}
-          ${statCardHTML(finalToPage, "الصفحة التي سيصل إليها النطاق أخيراً")}
+          ${statCardHTML(finalPageCount, "إجمالي صفحات المراجعة أخيراً")}
         </div>
-        ${inspireHTML(`ستبدأ الخطة بتاريخ ${formatDualDate(planStart)} بمراجعة الصفحات من ${range.from} إلى ${range.to}، ثم مع كل دورة جديدة كل ${cycleDays} يوماً يُضاف إليها ما تم حفظه حديثاً (حتى يصل النطاق إلى الصفحة ${finalToPage})، ${endText} بإذن الله`)}
+        ${inspireHTML(`ستبدأ الخطة بتاريخ ${formatDualDate(planStart)} بمراجعة الصفحات من ${range.from} إلى ${range.to}، ثم مع كل دورة جديدة كل ${cycleDays} يوماً يُضاف إليها ما تم حفظه حديثاً في تلك الدورة (بحسب مكانه الفعلي من القرآن)، حتى يشمل النطاق النهائي: ${finalDesc} (${finalPageCount} صفحة)، ${endText} بإذن الله`)}
         ${schedTableHTML}
       `;
       document.getElementById("review-results").innerHTML = html;
@@ -1803,7 +1816,8 @@
       const programDays = getProgramDays(r);
       const numCycles = Math.max(Math.round(programDays / cycleDays), 1);
       const programFinish = addDays(planStart, programDays);
-      const finalToPage = getGrowingReviewFinalToPage(range.to, memoDays);
+      const finalDesc = describeReviewSegments(getGrowingReviewFinalSegments(range.from, range.to, memoDays));
+      const finalPageCount = getGrowingReviewFinalPageCount(range.from, range.to, memoDays);
       reviewDays = buildGrowingCyclicAssignments(range.from, range.to, cycleDays, programDays, getEffectiveActiveDays(r), planStart, memoDays);
 
       reviewStatCardHTML = statCardHTML(cycleDays, "يوماً لكل دورة مراجعة");
@@ -1812,7 +1826,7 @@
         : r.endMode === "withMemo"
         ? `حتى تتوقف تلقائياً مع انتهاء خطة الحفظ بتاريخ ${formatDualDate(programFinish)} (${numCycles} دورة تقريباً)`
         : `حتى ${formatDualDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`;
-      reviewInspireText = `وستراجع من الصفحة ${range.from} إلى الصفحة ${range.to} كل ${cycleDays} يوماً، مع إضافة ما يُحفظ حديثاً إلى نطاق المراجعة تلقائياً بعد كل دورة (حتى يصل النطاق إلى الصفحة ${finalToPage}) ${endText}`;
+      reviewInspireText = `وستراجع من الصفحة ${range.from} إلى الصفحة ${range.to} كل ${cycleDays} يوماً، مع إضافة ما يُحفظ حديثاً إلى نطاق المراجعة تلقائياً بعد كل دورة (حسب مكانه الفعلي من القرآن)، حتى يشمل النطاق النهائي: ${finalDesc} (${finalPageCount} صفحة)، ${endText}`;
     } else if (r.cyclicMode) {
       const cycleDays = computeCycleDays(r);
       const programDays = getProgramDays(r);
@@ -2142,7 +2156,7 @@
 
   // Sums how many pages the memorization plan (memoDays) has newly memorized strictly before
   // calendar-day index `beforeIndex` (0-based, relative to the plan's start date). Rest days and
-  // "already fully memorized" filler days contribute nothing.
+  // "already fully memorized" filler days contribute nothing. (Kept for stats that just need a count.)
   function sumMemoPagesBefore(memoDays, beforeIndex) {
     let total = 0;
     const limit = Math.min(beforeIndex, memoDays.length);
@@ -2155,33 +2169,84 @@
     return total;
   }
 
-  // "المراجعة المتزايدة" (growing/incremental review): behaves like buildCyclicAssignments, except
-  // that at the start of every new cycle the review range's upper bound grows to also include
-  // whatever the memorization plan (memoDays) newly memorized during all previous cycles — so if
-  // memorization finishes week 1's portion, week 2's review covers the original range PLUS week
-  // 1's new pages, week 3 covers that PLUS week 2's new pages, and so on. Growth stops naturally
-  // once the memorization plan itself is finished (sumMemoPagesBefore then stays constant), and the
-  // upper bound never exceeds TOTAL_PAGES. Each cycle's daily quota is recalculated from scratch
-  // (via buildDailyAssignments) so the larger range still gets fully covered within that cycle.
-  function buildGrowingCyclicAssignments(fromPage, initialToPage, cycleDays, totalDays, activeDaysList, startDateObj, memoDays) {
+  // Returns the actual page range (min..max page number) the memorization plan (memoDays) has
+  // covered strictly before calendar-day index `beforeIndex`. Unlike a simple page COUNT, this
+  // captures exactly where the newly memorized pages sit in the book — essential for "reverse"
+  // memorization (from the end backward) or when the memorized pages land nowhere near the
+  // review range's own upper bound. Returns null if nothing has been memorized yet.
+  function getMemoRangeMemorizedBefore(memoDays, beforeIndex) {
+    let minP = null, maxP = null;
+    const limit = Math.min(beforeIndex, memoDays.length);
+    for (let i = 0; i < limit; i++) {
+      const d = memoDays[i];
+      if (d && !d.isRest && !d.isFilled && d.fromPage != null && d.toPage != null) {
+        if (minP === null || d.fromPage < minP) minP = d.fromPage;
+        if (maxP === null || d.toPage > maxP) maxP = d.toPage;
+      }
+    }
+    return minP === null ? null : { from: minP, to: maxP };
+  }
+
+  // Merges a list of {from,to} page segments, combining any that touch or overlap into one
+  // contiguous segment. Segments that stay far apart (e.g. review range 500-604 plus a newly
+  // memorized range 20-60) are correctly kept as separate blocks rather than being force-joined.
+  function mergeReviewSegments(segs) {
+    const sorted = segs.slice().sort((a, b) => a.from - b.from);
+    const merged = [];
+    for (const s of sorted) {
+      const last = merged[merged.length - 1];
+      if (last && s.from <= last.to + 1) {
+        last.to = Math.max(last.to, s.to);
+      } else {
+        merged.push({ from: s.from, to: s.to });
+      }
+    }
+    return merged;
+  }
+
+  // "المراجعة المتزايدة" (growing/incremental review): at the start of every new cycle, the review
+  // scope grows to also include the ACTUAL pages the memorization plan (memoDays) newly memorized
+  // during all previous cycles — wherever those pages fall in the book, and regardless of
+  // memorization direction. A newly memorized block that sits right next to the existing scope
+  // simply extends it (from either side); a block memorized somewhere unrelated is added as its
+  // own separate segment so it still gets reviewed. Growth stops naturally once the memorization
+  // plan itself is finished. Each cycle's daily quota is recalculated from scratch so the full
+  // (possibly larger, possibly multi-segment) scope still gets covered within that cycle.
+  function buildGrowingCyclicAssignments(initialFrom, initialTo, cycleDays, totalDays, activeDaysList, startDateObj, memoDays) {
     const days = [];
     let offset = 0;
+    let segments = [{ from: initialFrom, to: initialTo }];
     while (offset < totalDays) {
       const chunkLen = Math.min(cycleDays, totalDays - offset);
       const chunkStart = addDays(startDateObj, offset);
-      const memorizedSoFar = sumMemoPagesBefore(memoDays, offset);
-      const cycleToPage = Math.min(initialToPage + memorizedSoFar, TOTAL_PAGES);
-      const chunkDays = buildDailyAssignments(fromPage, cycleToPage, chunkLen, activeDaysList, chunkStart);
+      const newRange = getMemoRangeMemorizedBefore(memoDays, offset);
+      if (newRange) segments = mergeReviewSegments([...segments, newRange]);
+      const chunkDays = buildSegmentedDailyAssignments(segments, chunkLen, activeDaysList, chunkStart, "forward");
       days.push(...chunkDays);
       offset += chunkLen;
     }
     return days;
   }
 
-  // The final (largest) upper bound the growing review range will reach once the memorization
-  // plan finishes — used for display text ("سينتهي النطاق النهائي عند صفحة ...").
-  function getGrowingReviewFinalToPage(initialToPage, memoDays) {
-    return Math.min(initialToPage + sumMemoPagesBefore(memoDays, memoDays.length), TOTAL_PAGES);
+  // The final set of page segments the growing review range will cover once the memorization
+  // plan finishes (used for display text) — e.g. [{from:20,to:604}] if everything merged into one
+  // block, or multiple entries if some newly memorized pages ended up unrelated to the original range.
+  function getGrowingReviewFinalSegments(initialFrom, initialTo, memoDays) {
+    let segments = [{ from: initialFrom, to: initialTo }];
+    const finalRange = getMemoRangeMemorizedBefore(memoDays, memoDays.length);
+    if (finalRange) segments = mergeReviewSegments([...segments, finalRange]);
+    return segments;
+  }
+
+  // Total number of distinct pages covered by the final growing-review segments.
+  function getGrowingReviewFinalPageCount(initialFrom, initialTo, memoDays) {
+    return getGrowingReviewFinalSegments(initialFrom, initialTo, memoDays)
+      .reduce((sum, s) => sum + (s.to - s.from + 1), 0);
+  }
+
+  // Human-readable "من X إلى Y" / "من X إلى Y و من A إلى B" description of a segment list.
+  function describeReviewSegments(segments) {
+    return segments.map((s) => (s.from === s.to ? `${s.from}` : `من ${s.from} إلى ${s.to}`)).join("، و ");
   }
 
   // Central place resolving the review tab's page range into an actual day-by-day schedule,
@@ -2197,8 +2262,10 @@
       if (r.growWithMemo) {
         const memoDays = getMemoDaysForGrowth();
         const days = buildGrowingCyclicAssignments(range.from, range.to, cycleDays, programDays, activeDaysList, startDateObj, memoDays);
-        const finalToPage = getGrowingReviewFinalToPage(range.to, memoDays);
-        return { kind: "growing", days, range, cycleDays, programDays, numCycles, finalToPage };
+        const finalSegments = getGrowingReviewFinalSegments(range.from, range.to, memoDays);
+        const finalDesc = describeReviewSegments(finalSegments);
+        const finalPageCount = getGrowingReviewFinalPageCount(range.from, range.to, memoDays);
+        return { kind: "growing", days, range, cycleDays, programDays, numCycles, finalDesc, finalPageCount };
       }
       const days = buildCyclicAssignments(range.from, range.to, cycleDays, programDays, activeDaysList, startDateObj);
       return { kind: "cyclic", days, range, cycleDays, programDays, numCycles };
@@ -2254,7 +2321,7 @@
         return {
           days: sched.days,
           title: "جدول المراجعة المتزايدة",
-          subtitle: `مراجعة تبدأ من الصفحات ${range.from} إلى ${range.to} كل ${sched.cycleDays} يوماً، ويضاف إليها ما يُحفظ جديداً في كل دورة حتى تصل إلى الصفحة ${sched.finalToPage} — ${endText}`,
+          subtitle: `مراجعة تبدأ من الصفحات ${range.from} إلى ${range.to} كل ${sched.cycleDays} يوماً، ويضاف إليها ما يُحفظ جديداً في كل دورة (حسب مكانه الفعلي من القرآن)، حتى يشمل النطاق النهائي: ${sched.finalDesc} (${sched.finalPageCount} صفحة) — ${endText}`,
         };
       }
       if (sched.kind === "cyclic") {
@@ -2312,7 +2379,7 @@
         : r.endMode === "withMemo"
         ? `تتوقف مع انتهاء خطة الحفظ بتاريخ ${formatDualDate(addDays(today, sched.programDays))}`
         : `${sched.numCycles} دورة تقريباً`;
-      reviewSubtitle = `مع مراجعة متزايدة تبدأ من الصفحات ${range.from} إلى ${range.to} وتضيف كل ${sched.cycleDays} يوماً ما تم حفظه حديثاً، حتى تصل إلى الصفحة ${sched.finalToPage} (${endText})`;
+      reviewSubtitle = `مع مراجعة متزايدة تبدأ من الصفحات ${range.from} إلى ${range.to} وتضيف كل ${sched.cycleDays} يوماً ما تم حفظه حديثاً (حسب مكانه الفعلي من القرآن)، حتى يشمل النطاق النهائي: ${sched.finalDesc} (${sched.finalPageCount} صفحة) (${endText})`;
     } else if (sched.kind === "cyclic") {
       const endText = r.endMode === "date"
         ? `حتى ${formatDualDate(addDays(today, sched.programDays))}`
@@ -2593,6 +2660,79 @@
       btn.textContent = originalText;
     }
   });
+
+  /* ---------------- تثبيت الخطة كتطبيق (PWA) ---------------- */
+  (function setupInstallApp() {
+    const installBtn = document.getElementById("btn-install-app");
+    if (!installBtn) return;
+
+    const isStandaloneAlready =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      window.navigator.standalone === true; // iOS Safari flag
+
+    if (isStandaloneAlready) return; // already running as an installed app — nothing to offer
+
+    const isIOS = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+    let deferredPrompt = null;
+
+    // Chrome/Edge/Android: fires only when the page meets install criteria
+    // (served over HTTPS with a valid manifest + registered service worker).
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      installBtn.style.display = "inline-block";
+    });
+
+    window.addEventListener("appinstalled", () => {
+      installBtn.style.display = "none";
+      deferredPrompt = null;
+    });
+
+    // iOS Safari never fires beforeinstallprompt — show the button with manual steps instead.
+    if (isIOS) {
+      installBtn.style.display = "inline-block";
+    }
+
+    installBtn.addEventListener("click", async () => {
+      if (deferredPrompt) {
+        installBtn.disabled = true;
+        deferredPrompt.prompt();
+        try { await deferredPrompt.userChoice; } catch (e) {}
+        deferredPrompt = null;
+        installBtn.disabled = false;
+        installBtn.style.display = "none";
+        return;
+      }
+      if (isIOS) {
+        showNotice("لتثبيت التطبيق: اضغط زر المشاركة ⬆️ في متصفح Safari، ثم اختر «إضافة إلى الشاشة الرئيسية»", 6000);
+      } else {
+        showNotice("لتثبيت التطبيق: افتح قائمة المتصفح (⋮) واختر «تثبيت التطبيق» أو «إضافة إلى الشاشة الرئيسية»", 6000);
+      }
+    });
+
+    // Best-effort service worker registration (needed on Android/Chrome for the native install
+    // prompt to appear). Skipped automatically on file:// pages and older browsers, since service
+    // workers require the page to be hosted over HTTPS (or localhost) to work at all.
+    if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+      const swCode = `
+        const CACHE_NAME = "quran-plan-v1";
+        self.addEventListener("install", (e) => { self.skipWaiting(); });
+        self.addEventListener("activate", (e) => { self.clients.claim(); });
+        self.addEventListener("fetch", (e) => {
+          e.respondWith(
+            caches.open(CACHE_NAME).then((cache) =>
+              fetch(e.request).then((res) => { cache.put(e.request, res.clone()); return res; })
+                .catch(() => cache.match(e.request))
+            )
+          );
+        });
+      `;
+      try {
+        const swUrl = URL.createObjectURL(new Blob([swCode], { type: "text/javascript" }));
+        navigator.serviceWorker.register(swUrl).catch(() => {});
+      } catch (e) {}
+    }
+  })();
 })();
 </script>
 </body>
