@@ -536,7 +536,7 @@
       rangeMode: "pages", fromPage: 1, toPage: 20, fromSurah: 0, toSurah: 5,
       durationValue: 10, durationUnit: "days",
       daysMode: "custom", activeDays: ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس"],
-      cyclicMode: false, cycleValue: 7, cycleUnit: "days",
+      cyclicMode: false, cycleValue: 7, cycleUnit: "days", growWithMemo: false,
       programValue: 1, programUnit: "months",
       endMode: "duration", calendarType: "gregorian", endDate: null,
       reverseMode: false, reversePagesPerDay: 6, reverseRepeat: false,
@@ -1496,6 +1496,15 @@
 
         <p class="hint">سيتكرر ختم هذا النطاق تلقائياً بنفس الدورة حتى نهاية البرنامج، وينعكس هذا التكرار كاملاً على تقويم PDF. ملاحظة: تتوقف المراجعة فوراً عند بلوغ تاريخ الانتهاء، حتى لو لم تكتمل الدورة الجارية.</p>
         ${reviewDaysSelectHTML}
+
+        <label class="field-label" style="margin-top:0.9rem;">زيادة المراجعة تلقائياً مع تقدّم الحفظ</label>
+        <div class="mode-switch">
+          <button class="mode-btn${!r.growWithMemo ? " active" : ""}" id="${prefix}review-grow-off">نطاق ثابت (بدون زيادة)</button>
+          <button class="mode-btn${r.growWithMemo ? " active" : ""}" id="${prefix}review-grow-on">نطاق متزايد (يضم الحفظ الجديد)</button>
+        </div>
+        <p class="hint">${r.growWithMemo
+          ? `مع كل دورة مراجعة جديدة (كل ${computeCycleDays(r)} يوماً)، سيُضاف ما تم حفظه في الدورة السابقة إلى نطاق المراجعة، ويُعاد توزيع صفحات المراجعة يومياً بحيث يُختم النطاق الجديد بالكامل خلال الدورة — وتستمر الزيادة تلقائياً حتى تنتهي خطة الحفظ الحالية.`
+          : `النطاق المحدد أعلاه (${rangeForHints.from}-${rangeForHints.to}) سيبقى ثابتاً ويتكرر ختمه كما هو طوال البرنامج، دون إضافة ما يُحفظ جديداً.`}</p>
       </div>` : r.reverseMode ? `
       <div class="card form-card">
         <label class="field-label">عدد الصفحات يومياً (تنازلياً من الصفحة الأعلى)</label>
@@ -1579,6 +1588,8 @@
       document.getElementById(`${prefix}review-cycle-value`).oninput = (e) => { state.review.cycleValue = e.target.value; debouncedInputChange(); };
       document.getElementById(`${prefix}review-cycle-unit`).onchange = (e) => { state.review.cycleUnit = e.target.value; onInputChange(); };
       bindProgramDurationFieldEvents(prefix, onModeChange, onInputChange, prefix === "c-");
+      document.getElementById(`${prefix}review-grow-off`).onclick = () => { state.review.growWithMemo = false; onModeChange(); };
+      document.getElementById(`${prefix}review-grow-on`).onclick = () => { state.review.growWithMemo = true; onModeChange(); };
     } else if (r.reverseMode) {
       document.getElementById(`${prefix}review-reverse-pages`).oninput = (e) => { state.review.reversePagesPerDay = e.target.value; debouncedInputChange(); };
       document.getElementById(`${prefix}review-repeat-off`).onclick = () => { state.review.reverseRepeat = false; onModeChange(); };
@@ -1615,6 +1626,38 @@
     if (hintEl) {
       hintEl.textContent = `النطاق المحدد: من الصفحة ${range.from} إلى الصفحة ${range.to} (${totalPages} صفحة)` +
         (r.rangeMode === "surah" ? " — تقريبي حسب الطبعة الشائعة ذات ٦٠٤ صفحة" : "");
+    }
+
+    if (r.cyclicMode && r.growWithMemo) {
+      const cycleDays = computeCycleDays(r);
+      const programDays = getProgramDays(r);
+      const numCycles = Math.max(Math.round(programDays / cycleDays), 1);
+      const planStart = getPlanStartDate();
+      const programFinish = addDays(planStart, programDays);
+      const memoDays = getMemoDaysForGrowth();
+      const finalToPage = getGrowingReviewFinalToPage(range.to, memoDays);
+
+      const firstCycle = buildDailyAssignments(range.from, range.to, cycleDays, getEffectiveActiveDays(r), planStart);
+      const cycleSchedule = computeSchedule(r, totalPages, cycleDays);
+      const schedTableHTML = buildUpcomingScheduleTableHTML(firstCycle, { title: "جدول الدورة الأولى (سينمو النطاق تلقائياً بعد كل دورة)", limit: Math.max(cycleDays, 7) });
+
+      const endText = r.endMode === "date"
+        ? `حتى تاريخ الانتهاء المحدد: ${formatDualDate(programFinish)} (${numCycles} دورة تقريباً)`
+        : r.endMode === "withMemo"
+        ? `حتى انتهاء خطة الحفظ بتاريخ ${formatDualDate(programFinish)} (${numCycles} دورة تقريباً)`
+        : `على مدار البرنامج حتى ${formatDualDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`;
+
+      const html = `
+        <div class="stats-grid">
+          ${statCardHTML(cycleSchedule.perDay, "صفحة يومياً في الدورة الأولى")}
+          ${statCardHTML(cycleDays, "يوماً لكل دورة")}
+          ${statCardHTML(finalToPage, "الصفحة التي سيصل إليها النطاق أخيراً")}
+        </div>
+        ${inspireHTML(`ستبدأ الخطة بتاريخ ${formatDualDate(planStart)} بمراجعة الصفحات من ${range.from} إلى ${range.to}، ثم مع كل دورة جديدة كل ${cycleDays} يوماً يُضاف إليها ما تم حفظه حديثاً (حتى يصل النطاق إلى الصفحة ${finalToPage})، ${endText} بإذن الله`)}
+        ${schedTableHTML}
+      `;
+      document.getElementById("review-results").innerHTML = html;
+      return;
     }
 
     if (r.cyclicMode) {
@@ -1755,7 +1798,22 @@
     const totalPages = range.to - range.from + 1;
 
     let reviewStatCardHTML, reviewDays, reviewInspireText;
-    if (r.cyclicMode) {
+    if (r.cyclicMode && r.growWithMemo) {
+      const cycleDays = computeCycleDays(r);
+      const programDays = getProgramDays(r);
+      const numCycles = Math.max(Math.round(programDays / cycleDays), 1);
+      const programFinish = addDays(planStart, programDays);
+      const finalToPage = getGrowingReviewFinalToPage(range.to, memoDays);
+      reviewDays = buildGrowingCyclicAssignments(range.from, range.to, cycleDays, programDays, getEffectiveActiveDays(r), planStart, memoDays);
+
+      reviewStatCardHTML = statCardHTML(cycleDays, "يوماً لكل دورة مراجعة");
+      const endText = r.endMode === "date"
+        ? `حتى تتوقف فوراً بتاريخ ${formatDualDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`
+        : r.endMode === "withMemo"
+        ? `حتى تتوقف تلقائياً مع انتهاء خطة الحفظ بتاريخ ${formatDualDate(programFinish)} (${numCycles} دورة تقريباً)`
+        : `حتى ${formatDualDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`;
+      reviewInspireText = `وستراجع من الصفحة ${range.from} إلى الصفحة ${range.to} كل ${cycleDays} يوماً، مع إضافة ما يُحفظ حديثاً إلى نطاق المراجعة تلقائياً بعد كل دورة (حتى يصل النطاق إلى الصفحة ${finalToPage}) ${endText}`;
+    } else if (r.cyclicMode) {
       const cycleDays = computeCycleDays(r);
       const programDays = getProgramDays(r);
       const cycleSchedule = computeSchedule(r, totalPages, cycleDays);
@@ -2072,6 +2130,60 @@
     return days;
   }
 
+  // Computes the memorization plan's own day-by-day assignments (independent of which tab is
+  // active) so the "زيادة المراجعة تلقائياً" feature can look up how many pages were memorized
+  // during any given stretch of days, regardless of whether the user is on the review tab or the
+  // combined tab.
+  function getMemoDaysForGrowth() {
+    const m = state.memo;
+    const totalDays = getMemoProgramDays(m);
+    return buildSegmentedDailyAssignments(getRemainingSegments(m), totalDays, getEffectiveActiveDays(m), getPlanStartDate(), m.direction);
+  }
+
+  // Sums how many pages the memorization plan (memoDays) has newly memorized strictly before
+  // calendar-day index `beforeIndex` (0-based, relative to the plan's start date). Rest days and
+  // "already fully memorized" filler days contribute nothing.
+  function sumMemoPagesBefore(memoDays, beforeIndex) {
+    let total = 0;
+    const limit = Math.min(beforeIndex, memoDays.length);
+    for (let i = 0; i < limit; i++) {
+      const d = memoDays[i];
+      if (d && !d.isRest && !d.isFilled && d.fromPage != null && d.toPage != null) {
+        total += d.toPage - d.fromPage + 1;
+      }
+    }
+    return total;
+  }
+
+  // "المراجعة المتزايدة" (growing/incremental review): behaves like buildCyclicAssignments, except
+  // that at the start of every new cycle the review range's upper bound grows to also include
+  // whatever the memorization plan (memoDays) newly memorized during all previous cycles — so if
+  // memorization finishes week 1's portion, week 2's review covers the original range PLUS week
+  // 1's new pages, week 3 covers that PLUS week 2's new pages, and so on. Growth stops naturally
+  // once the memorization plan itself is finished (sumMemoPagesBefore then stays constant), and the
+  // upper bound never exceeds TOTAL_PAGES. Each cycle's daily quota is recalculated from scratch
+  // (via buildDailyAssignments) so the larger range still gets fully covered within that cycle.
+  function buildGrowingCyclicAssignments(fromPage, initialToPage, cycleDays, totalDays, activeDaysList, startDateObj, memoDays) {
+    const days = [];
+    let offset = 0;
+    while (offset < totalDays) {
+      const chunkLen = Math.min(cycleDays, totalDays - offset);
+      const chunkStart = addDays(startDateObj, offset);
+      const memorizedSoFar = sumMemoPagesBefore(memoDays, offset);
+      const cycleToPage = Math.min(initialToPage + memorizedSoFar, TOTAL_PAGES);
+      const chunkDays = buildDailyAssignments(fromPage, cycleToPage, chunkLen, activeDaysList, chunkStart);
+      days.push(...chunkDays);
+      offset += chunkLen;
+    }
+    return days;
+  }
+
+  // The final (largest) upper bound the growing review range will reach once the memorization
+  // plan finishes — used for display text ("سينتهي النطاق النهائي عند صفحة ...").
+  function getGrowingReviewFinalToPage(initialToPage, memoDays) {
+    return Math.min(initialToPage + sumMemoPagesBefore(memoDays, memoDays.length), TOTAL_PAGES);
+  }
+
   // Central place resolving the review tab's page range into an actual day-by-day schedule,
   // honoring all combinations of "مرة واحدة"/"تكرار دوري"/"عكسية" — including reverse review
   // combined with periodic repeat (r.reverseMode && r.reverseRepeat), which repeats the same
@@ -2082,6 +2194,12 @@
       const cycleDays = computeCycleDays(r);
       const programDays = getProgramDays(r);
       const numCycles = Math.max(Math.round(programDays / cycleDays), 1);
+      if (r.growWithMemo) {
+        const memoDays = getMemoDaysForGrowth();
+        const days = buildGrowingCyclicAssignments(range.from, range.to, cycleDays, programDays, activeDaysList, startDateObj, memoDays);
+        const finalToPage = getGrowingReviewFinalToPage(range.to, memoDays);
+        return { kind: "growing", days, range, cycleDays, programDays, numCycles, finalToPage };
+      }
       const days = buildCyclicAssignments(range.from, range.to, cycleDays, programDays, activeDaysList, startDateObj);
       return { kind: "cyclic", days, range, cycleDays, programDays, numCycles };
     }
@@ -2127,6 +2245,18 @@
       const r = state.review;
       const sched = resolveReviewSchedule(r, getEffectiveActiveDays(r), today);
       const range = sched.range;
+      if (sched.kind === "growing") {
+        const endText = r.endMode === "date"
+          ? `حتى ${formatDualDate(addDays(today, sched.programDays))}`
+          : r.endMode === "withMemo"
+          ? `حتى انتهاء خطة الحفظ (${formatDualDate(addDays(today, sched.programDays))})`
+          : `${sched.numCycles} دورة تقريباً`;
+        return {
+          days: sched.days,
+          title: "جدول المراجعة المتزايدة",
+          subtitle: `مراجعة تبدأ من الصفحات ${range.from} إلى ${range.to} كل ${sched.cycleDays} يوماً، ويضاف إليها ما يُحفظ جديداً في كل دورة حتى تصل إلى الصفحة ${sched.finalToPage} — ${endText}`,
+        };
+      }
       if (sched.kind === "cyclic") {
         const endText = r.endMode === "date"
           ? `حتى ${formatDualDate(addDays(today, sched.programDays))}`
@@ -2176,7 +2306,14 @@
     const sched = resolveReviewSchedule(r, getEffectiveActiveDays(r), today);
     const range = sched.range;
     let reviewSubtitle;
-    if (sched.kind === "cyclic") {
+    if (sched.kind === "growing") {
+      const endText = r.endMode === "date"
+        ? `حتى ${formatDualDate(addDays(today, sched.programDays))}`
+        : r.endMode === "withMemo"
+        ? `تتوقف مع انتهاء خطة الحفظ بتاريخ ${formatDualDate(addDays(today, sched.programDays))}`
+        : `${sched.numCycles} دورة تقريباً`;
+      reviewSubtitle = `مع مراجعة متزايدة تبدأ من الصفحات ${range.from} إلى ${range.to} وتضيف كل ${sched.cycleDays} يوماً ما تم حفظه حديثاً، حتى تصل إلى الصفحة ${sched.finalToPage} (${endText})`;
+    } else if (sched.kind === "cyclic") {
       const endText = r.endMode === "date"
         ? `حتى ${formatDualDate(addDays(today, sched.programDays))}`
         : r.endMode === "withMemo"
