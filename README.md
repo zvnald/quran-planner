@@ -102,6 +102,51 @@
     position: relative;
   }
   .header-banner p { margin: 0; font-size: clamp(0.8rem, 2.2vw, 0.98rem); color: var(--sand); position: relative; }
+  .student-name-field {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 0.9rem auto 0;
+    max-width: 420px;
+  }
+  .student-name-field label {
+    font-size: clamp(0.78rem, 2vw, 0.88rem);
+    font-weight: 700;
+    color: var(--sand);
+    white-space: nowrap;
+  }
+  .student-name-field input {
+    flex: 1;
+    min-width: 160px;
+    min-height: 42px;
+    border-radius: 12px;
+    border: 1.5px solid var(--caramel);
+    background: var(--paper);
+    color: var(--espresso);
+    font-family: 'Tajawal', sans-serif;
+    font-weight: 500;
+    font-size: clamp(0.85rem, 2vw, 0.95rem);
+    padding: 0.4rem 0.8rem;
+    text-align: center;
+  }
+  .student-name-field input:focus {
+    outline: none;
+    border-color: var(--latte);
+    box-shadow: 0 0 0 3px rgba(203,165,115,0.35);
+  }
+  .cal-plan-student { font-size: 0.85rem; font-weight: 700; color: var(--espresso); margin: 4px 0 0; }
+  .cal-month-badge-hijri {
+    display: block;
+    font-family: 'Tajawal', sans-serif;
+    font-weight: 500;
+    font-size: 0.62rem;
+    color: var(--sand);
+    margin-top: 2px;
+    text-align: center;
+  }
 
   .tabs {
     display: flex;
@@ -397,9 +442,11 @@
     font-family: 'Amiri', serif;
     font-weight: 700;
     font-size: 1.15rem;
-    padding: 10px 26px;
-    border-radius: 999px;
+    padding: 8px 26px 7px;
+    border-radius: 22px;
     box-shadow: 0 6px 14px rgba(43,28,19,0.25);
+    text-align: center;
+    line-height: 1.35;
   }
   .cal-grid {
     display: grid;
@@ -476,6 +523,10 @@
       <div class="ornament">﷽</div>
       <h1>خطة القرآن الكريم</h1>
       <p>خطط حفظك ومراجعتك للقرآن الكريم بخطوات واضحة</p>
+      <div class="student-name-field">
+        <label for="student-name-input">اسم الطالب/ـة</label>
+        <input type="text" id="student-name-input" placeholder="اكتب الاسم هنا (اختياري)" autocomplete="off" />
+      </div>
       <button class="action-btn secondary" id="btn-install-app" style="display:none; margin-top:0.6rem;">📲 تثبيت كتطبيق على الجهاز</button>
     </header>
 
@@ -537,6 +588,7 @@
 
   const state = {
     tab: "memorize",
+    studentName: "",
     memo: {
       mode: "duration", years: 3, months: 0, pagesPerWeek: 7,
       direction: "forward",
@@ -1914,7 +1966,7 @@
     btn.disabled = true;
     btn.textContent = "جارٍ الحفظ...";
     try {
-      const payload = { tab: state.tab, memoState: state.memo, reviewState: state.review, startDateState: state.startDate };
+      const payload = { tab: state.tab, memoState: state.memo, reviewState: state.review, startDateState: state.startDate, studentName: state.studentName };
       const result = await window.storage.set(STORAGE_KEY, JSON.stringify(payload), false);
       showNotice(result ? "تم حفظ الخطة بنجاح ✓" : "تعذّر حفظ الخطة، حاول مرة أخرى", 2500);
     } catch (e) {
@@ -1944,6 +1996,10 @@
         if (data.memoState) Object.assign(state.memo, data.memoState);
         if (data.reviewState) Object.assign(state.review, data.reviewState);
         if (data.startDateState) Object.assign(state.startDate, data.startDateState);
+        if (typeof data.studentName === "string") {
+          state.studentName = data.studentName;
+          document.getElementById("student-name-input").value = data.studentName;
+        }
         renderStartDateCard();
         renderTab();
         showNotice("تم استرجاع خطتك المحفوظة ✓", 2200);
@@ -1957,6 +2013,11 @@
       btn.textContent = originalText;
     }
   });
+
+  /* اسم الطالب: يُخزَّن في state ليظهر في عنوان ملف PDF وداخل كل صفحة من صفحات الخطة */
+  document.getElementById("student-name-input").oninput = function (e) {
+    state.studentName = e.target.value;
+  };
 
   /* Initial render: always starts from the plain default state — never touches storage — so the
      form the user sees (and therefore every PDF/print) reflects only what's on screen. */
@@ -2435,7 +2496,21 @@
 
   const ARABIC_MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 
-  function buildMonthPageHTML(monthGroup, planTitle, planSubtitle) {
+  // يبني نص الشهر الهجري المقابل بالاعتماد على أول وآخر يوم في هذا الشهر الميلادي —
+  // إن اختلف الشهر الهجري بينهما (وهو الغالب) تُعرض الفترة كاملة مثل "شعبان - رمضان 1447هـ".
+  function buildHijriMonthLabel(year, month, daysInMonth) {
+    const firstH = jdnToHijri(gregorianToJDN(year, month + 1, 1));
+    const lastH = jdnToHijri(gregorianToJDN(year, month + 1, daysInMonth));
+    if (firstH.month === lastH.month && firstH.year === lastH.year) {
+      return `${HIJRI_MONTHS[firstH.month - 1]} ${firstH.year}هـ`;
+    }
+    if (firstH.year === lastH.year) {
+      return `${HIJRI_MONTHS[firstH.month - 1]} - ${HIJRI_MONTHS[lastH.month - 1]} ${lastH.year}هـ`;
+    }
+    return `${HIJRI_MONTHS[firstH.month - 1]} ${firstH.year}هـ - ${HIJRI_MONTHS[lastH.month - 1]} ${lastH.year}هـ`;
+  }
+
+  function buildMonthPageHTML(monthGroup, planTitle, planSubtitle, studentName) {
     const { year, month, days } = monthGroup;
     const firstDay = new Date(year, month, 1);
     // Align to Saturday-first week (matches WEEK_DAYS order)
@@ -2486,17 +2561,18 @@
         <div class="cal-page-header">
           <div>
             <p class="cal-plan-title">${planTitle}</p>
+            ${studentName ? `<p class="cal-plan-student">الطالب/ـة: ${studentName}</p>` : ""}
             <p class="cal-plan-sub">${planSubtitle}</p>
           </div>
-          <div class="cal-month-badge">${ARABIC_MONTHS[month]} ${year}</div>
+          <div class="cal-month-badge">${ARABIC_MONTHS[month]} ${year}<span class="cal-month-badge-hijri">${buildHijriMonthLabel(year, month, daysInMonth)}</span></div>
         </div>
         <div class="cal-grid">${dowHeader}${cells}</div>
-        <p class="cal-page-footer">﷽ — خطة القرآن الكريم</p>
+        <p class="cal-page-footer">﷽ — خطة القرآن الكريم${studentName ? ` — ${studentName}` : ""}</p>
       </div>
     `;
   }
 
-  function buildCombinedMonthPageHTML(monthGroup, planTitle, planSubtitle) {
+  function buildCombinedMonthPageHTML(monthGroup, planTitle, planSubtitle, studentName) {
     const { year, month, days } = monthGroup;
     const firstDay = new Date(year, month, 1);
     const firstDow = (firstDay.getDay() + 1) % 7;
@@ -2569,12 +2645,13 @@
         <div class="cal-page-header">
           <div>
             <p class="cal-plan-title">${planTitle}</p>
+            ${studentName ? `<p class="cal-plan-student">الطالب/ـة: ${studentName}</p>` : ""}
             <p class="cal-plan-sub">${planSubtitle}</p>
           </div>
-          <div class="cal-month-badge">${ARABIC_MONTHS[month]} ${year}</div>
+          <div class="cal-month-badge">${ARABIC_MONTHS[month]} ${year}<span class="cal-month-badge-hijri">${buildHijriMonthLabel(year, month, daysInMonth)}</span></div>
         </div>
         <div class="cal-grid">${dowHeader}${cells}</div>
-        <p class="cal-page-footer">﷽ — الخطة الشاملة لحفظ ومراجعة القرآن</p>
+        <p class="cal-page-footer">﷽ — الخطة الشاملة لحفظ ومراجعة القرآن${studentName ? ` — ${studentName}` : ""}</p>
       </div>
     `;
   }
@@ -2623,7 +2700,7 @@
 
       for (let i = 0; i < months.length; i++) {
         showNotice(`جارٍ تجهيز شهر ${i + 1} من ${months.length}...`);
-        calRoot.innerHTML = monthRenderer(months[i], plan.title, plan.subtitle);
+        calRoot.innerHTML = monthRenderer(months[i], plan.title, plan.subtitle, state.studentName.trim());
 
         const pageNode = calRoot.querySelector(".cal-page");
         await waitForPaint(pageNode);
@@ -2650,7 +2727,8 @@
         calRoot.innerHTML = "";
       }
 
-      pdf.save(isCombined ? "تقويم-الخطة-الشاملة.pdf" : "تقويم-خطة-القرآن.pdf");
+      const nameSuffix = state.studentName.trim() ? `-${state.studentName.trim()}` : "";
+      pdf.save((isCombined ? "تقويم-الخطة-الشاملة" : "تقويم-خطة-القرآن") + nameSuffix + ".pdf");
       showNotice("تم إنشاء تقويم PDF بنجاح ✓", 2500);
     } catch (err) {
       calRoot.innerHTML = "";
