@@ -647,6 +647,42 @@
   function surahEndPage(index) {
     return index + 1 < SURAHS.length ? SURAHS[index + 1][1] - 1 || SURAHS[index][1] : TOTAL_PAGES;
   }
+  // يرجع فهرس السورة التي تقع فيها صفحة معيّنة (SURAHS مرتبة تصاعدياً حسب صفحة البداية).
+  function surahIndexForPage(page) {
+    let lo = 0, hi = SURAHS.length - 1;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (SURAHS[mid][1] <= page) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+  }
+  function surahStartPageOf(index) { return SURAHS[index][1]; }
+
+  /* ---------------- محاذاة نهاية اليوم على حدود السور (بدل الاعتماد على حساب الصفحات فقط) ----------------
+     الفكرة: كل يوم له "نهاية طبيعية" محسوبة رياضياً حسب المعدّل. إن وقعت هذه النهاية في منتصف سورة،
+     نحاول تعديلها بمقدار صفحة واحدة فقط (بالزيادة أو بالنقصان) لتصبح نهاية اليوم متطابقة تماماً مع
+     نهاية سورة (فيبدأ اليوم التالي تلقائياً من أول سورة جديدة). إن تعذّر ذلك بفارق صفحة واحدة (سورة
+     طويلة تستغرق عدة أيام أصلاً) تُترك النهاية كما هي دون تعديل. */
+  function nudgeForwardBoundary(toP, hardMax) {
+    if (toP >= hardMax) return Math.min(toP, hardMax);
+    const idx = surahIndexForPage(toP);
+    const start = surahStartPageOf(idx);
+    const end = surahEndPage(idx);
+    if (toP === end) return toP; // نهاية اليوم أصلاً نهاية سورة كاملة
+    if (toP + 1 === end && toP + 1 <= hardMax) return toP + 1; // ينقصه صفحة واحدة ليختم السورة كاملة
+    if (toP === start && toP - 1 >= 1) return toP - 1; // أخذ صفحة واحدة فقط من سورة جديدة، اتركها لغد
+    return toP;
+  }
+  function nudgeReverseBoundary(fromP, hardMin) {
+    if (fromP <= hardMin) return Math.max(fromP, hardMin);
+    const idx = surahIndexForPage(fromP);
+    const start = surahStartPageOf(idx);
+    const end = surahEndPage(idx);
+    if (fromP === start) return fromP; // بداية اليوم أصلاً بداية سورة كاملة (السورة اكتملت)
+    if (fromP - 1 === start && fromP - 1 >= hardMin) return fromP - 1; // ينقصه صفحة واحدة ليكمل السورة لبدايتها
+    if (fromP === end && fromP + 1 <= TOTAL_PAGES) return fromP + 1; // أخذ صفحة واحدة فقط (آخر صفحة) من سورة، اتركها كاملة لغد
+    return fromP;
+  }
   function formatDate(d) {
     return d.toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" });
   }
@@ -2058,8 +2094,12 @@
       if (assignedSoFar >= totalPagesToCover) pagesToday = 0;
 
       const fromP = startPage + assignedSoFar;
-      const toP = Math.min(fromP + pagesToday - 1, endPage);
+      let toP = Math.min(fromP + pagesToday - 1, endPage);
       const isFilled = assignedSoFar >= totalPagesToCover;
+      if (!isFilled && toP >= fromP) {
+        toP = nudgeForwardBoundary(toP, endPage);
+        pagesToday = toP - fromP + 1;
+      }
 
       days.push({ date, isRest: false, fromPage: isFilled ? null : fromP, toPage: isFilled ? null : toP, isFilled });
 
@@ -2116,6 +2156,8 @@
         take = Math.max(Math.min(quota, segRemaining), 1);
         toP = cursor;
         fromP = cursor - take + 1;
+        if (fromP > seg.from) fromP = nudgeReverseBoundary(fromP, seg.from); // محاذاة على بداية سورة إن أمكن بفارق صفحة واحدة
+        take = toP - fromP + 1;
         cursor = fromP - 1;
         if (cursor < seg.from) { segIdx++; if (orderedSegments[segIdx]) cursor = orderedSegments[segIdx].to; }
       } else {
@@ -2123,6 +2165,8 @@
         take = Math.max(Math.min(quota, segRemaining), 1);
         fromP = cursor;
         toP = cursor + take - 1;
+        if (toP < seg.to) toP = nudgeForwardBoundary(toP, seg.to); // محاذاة على نهاية سورة إن أمكن بفارق صفحة واحدة
+        take = toP - fromP + 1;
         cursor = toP + 1;
         if (cursor > seg.to) { segIdx++; if (orderedSegments[segIdx]) cursor = orderedSegments[segIdx].from; }
       }
@@ -2142,16 +2186,14 @@
   function buildReverseDailyAssignments(startPage, endPage, pagesPerDay, activeDaysList, startDateObj) {
     const totalPagesToCover = Math.max(endPage - startPage + 1, 1);
     const perDay = Math.max(Math.round(Number(pagesPerDay) || 1), 1);
-    const neededActiveDays = Math.max(Math.ceil(totalPagesToCover / perDay), 1);
 
     const days = [];
     let remainingTop = endPage; // highest page not yet assigned
-    let activeSeen = 0;
     let i = 0;
     // Safety cap in case activeDaysList somehow matches no day of the week (isDayActive always false).
-    const maxIterations = neededActiveDays * 14 + 400;
+    const maxIterations = Math.ceil(totalPagesToCover / perDay) * 14 + 400;
 
-    while (activeSeen < neededActiveDays && i < maxIterations) {
+    while (remainingTop >= startPage && i < maxIterations) {
       const date = addDays(startDateObj, i);
       const dow = (startDateObj.getDay() + 1 + i) % 7; // align with WEEK_DAYS (starts Saturday)
       const isRest = !isDayActive(WEEK_DAYS[dow], activeDaysList);
@@ -2163,11 +2205,11 @@
       }
 
       const toP = remainingTop;
-      const fromP = Math.max(toP - perDay + 1, startPage);
+      let fromP = Math.max(toP - perDay + 1, startPage);
+      if (fromP > startPage) fromP = nudgeReverseBoundary(fromP, startPage); // محاذاة على بداية سورة إن أمكن بفارق صفحة واحدة
       days.push({ date, isRest: false, fromPage: fromP, toPage: toP, isFilled: false });
 
       remainingTop = fromP - 1;
-      activeSeen++;
       i++;
     }
     return days;
