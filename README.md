@@ -651,6 +651,9 @@
       direction: "forward",
       preMemorized: { enabled: false, mode: "range", fromPage: 1, toPage: 20, count: 20, secondRangeEnabled: false, fromPage2: 500, toPage2: 604 },
       daysMode: "all", activeDays: ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"],
+      // نهاية خطة الحفظ: "finishQuran" (تستمر حتى إتمام حفظ القرآن كاملاً، الوضع الافتراضي)
+      // أو "date" (تتوقف عند تاريخ محدد، ولو لم يكتمل حفظ القرآن بعد).
+      endMode: "finishQuran", calendarType: "gregorian", endDate: null,
     },
     review: {
       rangeMode: "pages", fromPage: 1, toPage: 20, fromSurah: 0, toSurah: SURAHS.length - 1,
@@ -745,16 +748,87 @@
   // "الحفظ المعكوس" حين يغطي اليوم أكثر من نطاق منفصل)، ويرجع تلقائياً لزوج fromPage/toPage القديم
   // لأي يوم آخر لا يحمل ranges (الحفظ الأمامي، المراجعة، إلخ). مصفوفة فارغة تعني يوماً بلا ورد صفحات.
   function dayPageRanges(d) {
+    if (d && Array.isArray(d.parts) && d.parts.length) {
+      return d.parts.map((p) => p.type === "half"
+        ? { from: p.page, to: p.page, half: p.half }
+        : { from: p.from, to: p.to });
+    }
     if (d && Array.isArray(d.ranges) && d.ranges.length) return d.ranges;
     if (d && d.fromPage != null && d.toPage != null) return [{ from: d.fromPage, to: d.toPage }];
     return [];
   }
-  // تسمية نطاق واحد بصيغة كاملة: "صفحة 482" أو "من 467 إلى 470".
+  /* ---------------- دعم "نصف الصفحة" (مقدار يومي أقل من صفحة كاملة) ----------------
+     كل صفحة تُمثَّل داخلياً بوحدتين متتاليتين من "أنصاف الصفحات" (half-units): الوحدة الزوجية هي
+     النصف الأعلى، والوحدة الفردية التالية لها مباشرة هي النصف الأسفل من نفس الصفحة. هذا يسمح بتوزيع
+     حصة يومية أصغر من صفحة كاملة (نصف صفحة، صفحة ونصف، ...) بدقة، بدل تقريبها دائماً لصفحة كاملة. */
+  function pageToHalfUnit(page, isBottom) { return (page - 1) * 2 + (isBottom ? 1 : 0); }
+  function halfUnitToPage(u) { return Math.floor(u / 2) + 1; }
+  function isHalfUnitTop(u) { return u % 2 === 0; }
+  // يحوّل مدى متصل من أنصاف الصفحات [fromUnit..toUnit] (شامل الطرفين) إلى قائمة "أجزاء" قابلة
+  // للعرض: كل امتداد من صفحات كاملة متتالية يُجمع في جزء واحد {type:"full", from, to}، وأي طرف
+  // ينتهي أو يبدأ في منتصف صفحة (نصف واحد فقط دون تكملته) يُفرد في جزء مستقل
+  // {type:"half", page, half:"top"|"bottom"}.
+  function halfUnitsToParts(fromUnit, toUnit) {
+    const parts = [];
+    let u = fromUnit;
+    while (u <= toUnit) {
+      if (isHalfUnitTop(u) && u + 1 <= toUnit) {
+        const startPage = halfUnitToPage(u);
+        let v = u;
+        while (v + 1 <= toUnit && isHalfUnitTop(v)) v += 2;
+        parts.push({ type: "full", from: startPage, to: halfUnitToPage(v - 1) });
+        u = v;
+      } else {
+        parts.push({ type: "half", page: halfUnitToPage(u), half: isHalfUnitTop(u) ? "top" : "bottom" });
+        u += 1;
+      }
+    }
+    return parts;
+  }
+  function partStartPage(p) { return p.type === "half" ? p.page : p.from; }
+  function partEndPage(p) { return p.type === "half" ? p.page : p.to; }
+  // يدمج أجزاء "كاملة" (full) تتلامس أرقام صفحاتها في نطاق واحد متصل، حتى لو وردت في اليوم بترتيب
+  // غير تصاعدي (كما يحدث في الحفظ المعكوس حين تُطوى السور من الأخيرة للأولى، بينما صفحات كل سورة
+  // قصيرة قد تكون متتالية الأرقام مع سورة أخرى مجاورة). يحافظ على موضع أول ظهور لكل نطاق مدمَج ضمن
+  // ترتيب اليوم الأصلي، ولا يمسّ الأجزاء النصفية (half) التي تبقى مستقلة كما هي.
+  function mergeAdjacentParts(parts) {
+    const fullIdx = [];
+    parts.forEach((p, i) => { if (p.type === "full") fullIdx.push(i); });
+    const parent = fullIdx.map((_, i) => i);
+    function find(x) { return parent[x] === x ? x : (parent[x] = find(parent[x])); }
+    function union(a, b) { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; }
+    for (let a = 0; a < fullIdx.length; a++) {
+      for (let b = a + 1; b < fullIdx.length; b++) {
+        const pa = parts[fullIdx[a]], pb = parts[fullIdx[b]];
+        if (pa.to + 1 === pb.from || pb.to + 1 === pa.from) union(a, b);
+      }
+    }
+    const groups = new Map();
+    fullIdx.forEach((origIdx, i) => {
+      const root = find(i);
+      const p = parts[origIdx];
+      if (!groups.has(root)) groups.set(root, { from: p.from, to: p.to, firstIndex: origIdx });
+      else {
+        const g = groups.get(root);
+        g.from = Math.min(g.from, p.from);
+        g.to = Math.max(g.to, p.to);
+        g.firstIndex = Math.min(g.firstIndex, origIdx);
+      }
+    });
+    const result = [];
+    parts.forEach((p, i) => { if (p.type !== "full") result.push({ item: p, idx: i }); });
+    groups.forEach((g) => result.push({ item: { type: "full", from: g.from, to: g.to }, idx: g.firstIndex }));
+    result.sort((a, b) => a.idx - b.idx);
+    return result.map((r) => r.item);
+  }
+  // تسمية نطاق واحد بصيغة كاملة: "صفحة 482" أو "من 467 إلى 470" أو "نصف الصفحة 482 اللي فوق".
   function formatPageRangeFull(r) {
+    if (r.half) return `نصف الصفحة ${r.from} اللي ${r.half === "top" ? "فوق" : "تحت"}`;
     return r.from === r.to ? `صفحة ${r.from}` : `من ${r.from} إلى ${r.to}`;
   }
-  // تسمية نطاق واحد بصيغة مختصرة: "ص482" أو "467-470".
+  // تسمية نطاق واحد بصيغة مختصرة: "ص482" أو "467-470" أو "نصف ص482 فوق".
   function formatPageRangeShort(r) {
+    if (r.half) return `نصف ص${r.from} ${r.half === "top" ? "فوق" : "تحت"}`;
     return r.from === r.to ? `ص${r.from}` : `${r.from}-${r.to}`;
   }
   // تسمية يوم كامل (قد يضم أكثر من نطاق صفحات منفصل في الحفظ المعكوس) بالصيغة الكاملة.
@@ -1222,6 +1296,16 @@
     const ajzaPerMonth = ((remaining / totalDays) * 30) / 20;
     return { perDay, perWeek, ajzaPerMonth, finishDate: addDays(getPlanStartDate(), totalDays), totalDays, remaining };
   }
+  // معدّل المراجعة التنازلية اليومي (قد يكون نصف صفحة) — يُقرَّب لأقرب نصف صفحة (0.5) بدل تقريبه
+  // دائماً لصفحة كاملة، حتى تنعكس "المراجعة العكسية" بدقة عند معدّلات أقل من صفحة/يوم.
+  function getReversePagesPerDay(r) {
+    return Math.max(Math.round((Number(r.reversePagesPerDay) || 1) * 2) / 2, 0.5);
+  }
+  // تنسيق عرض معدّل الصفحات/اليوم في بطاقات الإحصاء: عدد صحيح كما هو، وإلا بمنزلة عشرية واحدة
+  // (0.5, 1.5, ...).
+  function formatPerDayValue(n) {
+    return Number.isInteger(n) ? String(n) : n.toFixed(1);
+  }
   function computePace(m) {
     const remaining = getRemainingPages(m);
     const perWeek = Math.max(Number(m.pagesPerWeek) || 0.0001, 0.0001);
@@ -1232,10 +1316,79 @@
     const perDay = perWeek / activeDaysPerWeek; // pages per active memorization day
     return { totalWeeks, totalDays, totalYears, perDay, finishDate: addDays(getPlanStartDate(), totalDays), remaining };
   }
-  // مدة خطة الحفظ بالأيام (تُستخدم لربط نهاية المراجعة بنهاية خطة الحفظ)
-  function getMemoProgramDays(m) {
+  // مدة خطة الحفظ بالأيام (تُستخدم لربط نهاية المراجعة بنهاية خطة الحفظ، ولبناء تقويم الحفظ نفسه).
+  // إن اختار المستخدم "نهاية الخطة" بتاريخ محدد (m.endMode === "date")، تُقصّ هذه المدة الطبيعية
+  // عند ذلك التاريخ حتى لو لم يكتمل حفظ القرآن الكريم بعد بهذا المعدّل — وهذا مصدر الحقيقة الوحيد
+  // لطول خطة الحفظ، تستدعيه كل الأماكن الأخرى (نتائج تبويب الحفظ، التبويب الشامل، تصدير PDF) بدل
+  // إعادة حساب المدة الطبيعية كل مرة بشكل منفصل، لضمان توقف الخطة في نفس التاريخ في كل مكان تظهر فيه.
+  function getMemoNaturalProgramDays(m) {
     const totalDays = (m.mode === "duration") ? computeDuration(m).totalDays : computePace(m).totalDays;
     return Math.max(Math.round(totalDays), 1);
+  }
+  function getMemoProgramDays(m) {
+    const natural = getMemoNaturalProgramDays(m);
+    if (m.endMode === "date") return Math.min(natural, computeProgramDaysFromEndDate(m));
+    return natural;
+  }
+  // true إذا كانت "نهاية الخطة" المحددة تقصّ خطة الحفظ فعلياً قبل اكتمال القرآن الكريم بالمعدّل الحالي.
+  function isMemoEndDateCapped(m) {
+    return m.endMode === "date" && getMemoProgramDays(m) < getMemoNaturalProgramDays(m);
+  }
+
+  /* ---------------- End-date picker (هجري / ميلادي) for a capped memorize plan ---------------- */
+  // Mirrors buildEndDatePickerHTML (used by cyclic review) but with its own "memo-" id namespace,
+  // since both can be visible together on the "خطة شاملة" tab.
+  function buildMemoEndDatePickerHTML(m, prefix) {
+    const type = m.calendarType || "gregorian";
+    const parts = m.endDate || defaultEndDateParts(type);
+    const isHijri = type === "hijri";
+    const monthNames = isHijri ? HIJRI_MONTHS : ARABIC_MONTHS;
+    const baseYear = isHijri ? planStartHijriParts().year : getPlanStartDate().getFullYear();
+    const dayCount = isHijri ? 30 : daysInGregorianMonth(parts.year || baseYear, parts.month || 1);
+
+    let dayOptions = "";
+    for (let d = 1; d <= dayCount; d++) {
+      dayOptions += `<option value="${d}"${d === parts.day ? " selected" : ""}>${d}</option>`;
+    }
+    let monthOptions = "";
+    monthNames.forEach((name, idx) => {
+      monthOptions += `<option value="${idx + 1}"${idx + 1 === parts.month ? " selected" : ""}>${name}</option>`;
+    });
+    let yearOptions = "";
+    for (let y = baseYear; y <= baseYear + 6; y++) {
+      yearOptions += `<option value="${y}"${y === parts.year ? " selected" : ""}>${y}</option>`;
+    }
+
+    const endDateObjForDisplay = isHijri
+      ? (() => { const g = convertDateParts("hijri", "gregorian", parts); return new Date(g.year, g.month - 1, g.day); })()
+      : new Date(parts.year, parts.month - 1, parts.day);
+
+    const cappedNote = isMemoEndDateCapped(m)
+      ? `<p class="hint">ستتوقف خطة الحفظ عند هذا التاريخ حتى لو لم يكتمل حفظ القرآن الكريم كاملاً بهذا المعدّل.</p>`
+      : `<p class="hint">هذا التاريخ لن يقصّر الخطة فعلياً — المعدّل الحالي ينهي حفظ القرآن الكريم قبل هذا التاريخ أو عنده تماماً.</p>`;
+
+    return `
+      <div class="mode-switch" style="margin-top:0.7rem;">
+        <button class="mode-btn${!isHijri ? " active" : ""}" id="${prefix}memo-caltype-gregorian">ميلادي</button>
+        <button class="mode-btn${isHijri ? " active" : ""}" id="${prefix}memo-caltype-hijri">هجري</button>
+      </div>
+      <div class="field-row" style="margin-top:0.6rem;">
+        <div class="field-group">
+          <span>اليوم</span>
+          <select id="${prefix}memo-end-day">${dayOptions}</select>
+        </div>
+        <div class="field-group">
+          <span>الشهر</span>
+          <select id="${prefix}memo-end-month">${monthOptions}</select>
+        </div>
+        <div class="field-group">
+          <span>السنة</span>
+          <select id="${prefix}memo-end-year">${yearOptions}</select>
+        </div>
+      </div>
+      <p class="hint">تاريخ نهاية الخطة الموافق: ${formatDualDate(endDateObjForDisplay)}</p>
+      ${cappedNote}
+    `;
   }
 
   function buildMemoFormHTML(m, prefix) {
@@ -1340,6 +1493,17 @@
         <p class="hint">${m.direction === "reverse" ? "سيبدأ الحفظ من الجزء الأخير المتبقي (الأقرب لسورة الناس) ويتدرج نزولاً نحو البداية، وكل سورة تُحسب صفحاتها من بدايتها تصاعدياً." : "الحفظ بالترتيب المعتاد من الفاتحة حتى ختم القرآن الكريم."}</p>
       </div>`;
 
+    const endDateHTML = `
+      <div class="card form-card">
+        <label class="field-label">نهاية الخطة</label>
+        <div class="mode-switch">
+          <button class="mode-btn${m.endMode !== "date" ? " active" : ""}" id="${prefix}memo-endmode-finish">حتى إتمام حفظ القرآن كاملاً</button>
+          <button class="mode-btn${m.endMode === "date" ? " active" : ""}" id="${prefix}memo-endmode-date">بتاريخ محدد</button>
+        </div>
+        ${m.endMode === "date" ? buildMemoEndDatePickerHTML(m, prefix) : `
+        <p class="hint">ستستمر الخطة حتى إتمام حفظ القرآن الكريم كاملاً بالمعدّل المحسوب أعلاه، مهما طالت المدة.</p>`}
+      </div>`;
+
     return `
       <div class="mode-switch">
         <button class="mode-btn${m.mode === "duration" ? " active" : ""}" id="${prefix}memo-mode-duration">الحساب بالمدة</button>
@@ -1348,6 +1512,7 @@
       ${formHTML}
       ${buildDaysSelectHTML(m, prefix, "memo", "أيام الحفظ الأسبوعية")}
       ${directionHTML}
+      ${endDateHTML}
       ${preMemHTML}
     `;
   }
@@ -1385,6 +1550,33 @@
     }
     document.getElementById(`${prefix}memo-dir-forward`).onclick = () => { state.memo.direction = "forward"; onModeChange(); };
     document.getElementById(`${prefix}memo-dir-reverse`).onclick = () => { state.memo.direction = "reverse"; onModeChange(); };
+
+    document.getElementById(`${prefix}memo-endmode-finish`).onclick = () => { state.memo.endMode = "finishQuran"; onModeChange(); };
+    document.getElementById(`${prefix}memo-endmode-date`).onclick = () => {
+      if (!state.memo.endDate) state.memo.endDate = defaultEndDateParts(state.memo.calendarType);
+      state.memo.endMode = "date";
+      onModeChange();
+    };
+    if (m.endMode === "date") {
+      if (!state.memo.endDate) state.memo.endDate = defaultEndDateParts(state.memo.calendarType);
+      document.getElementById(`${prefix}memo-caltype-gregorian`).onclick = () => {
+        state.memo.endDate = convertDateParts(state.memo.calendarType, "gregorian", state.memo.endDate);
+        state.memo.calendarType = "gregorian";
+        onModeChange();
+      };
+      document.getElementById(`${prefix}memo-caltype-hijri`).onclick = () => {
+        state.memo.endDate = convertDateParts(state.memo.calendarType, "hijri", state.memo.endDate);
+        state.memo.calendarType = "hijri";
+        onModeChange();
+      };
+      document.getElementById(`${prefix}memo-end-day`).onchange = (e) => { state.memo.endDate.day = Number(e.target.value); onInputChange(); };
+      document.getElementById(`${prefix}memo-end-month`).onchange = (e) => {
+        state.memo.endDate.month = Number(e.target.value);
+        onModeChange(); // شهر جديد قد يغيّر عدد الأيام المتاحة
+      };
+      document.getElementById(`${prefix}memo-end-year`).onchange = (e) => { state.memo.endDate.year = Number(e.target.value); onInputChange(); };
+    }
+
     bindDaysSelectEvents(state.memo, prefix, "memo", onModeChange, onInputChange);
   }
 
@@ -1416,27 +1608,34 @@
     }
 
     let filledBeads = 0;
-    let totalDays;
+    // totalDays is the ACTUAL length of the printed/exported plan — it already reflects the
+    // end-date cap (getMemoProgramDays), so every place below that builds or counts days must use
+    // this value, not the "natural" pace-derived duration, or the plan would silently ignore the cap.
+    const totalDays = getMemoProgramDays(m);
+    const isCapped = isMemoEndDateCapped(m);
+    const planEndDate = addDays(getPlanStartDate(), totalDays);
     if (m.mode === "duration") {
       const r = computeDuration(m);
-      totalDays = Math.max(Math.round(r.totalDays), 1);
       filledBeads = Math.min(TOTAL_AJZA, Math.round(r.ajzaPerMonth));
       html += `<div class="stats-grid">
         ${statCardHTML(r.perDay.toFixed(2), "صفحة في يوم الحفظ")}
         ${statCardHTML(r.perWeek.toFixed(1), "صفحة أسبوعياً")}
         ${statCardHTML(r.ajzaPerMonth.toFixed(1), "جزء شهرياً تقريباً")}
       </div>`;
-      html += inspireHTML(`بإذن الله، بناءً على خطتك ستبدأ بتاريخ ${formatDualDate(getPlanStartDate())} وتختم حفظ ${hasPreMem ? "بقية" : ""} القرآن الكريم بتاريخ ${formatDualDate(r.finishDate)}${m.direction === "reverse" ? " (حفظاً معكوساً من سورة الناس)" : ""}`);
+      html += isCapped
+        ? inspireHTML(`بإذن الله ستبدأ الخطة بتاريخ ${formatDualDate(getPlanStartDate())} وتتوقف بتاريخ نهاية الخطة الذي اخترته ${formatDualDate(planEndDate)}، ولن يكون قد اكتمل حفظ ${hasPreMem ? "بقية " : ""}القرآن الكريم بالكامل بحلول هذا التاريخ بهذا المعدّل`)
+        : inspireHTML(`بإذن الله، بناءً على خطتك ستبدأ بتاريخ ${formatDualDate(getPlanStartDate())} وتختم حفظ ${hasPreMem ? "بقية" : ""} القرآن الكريم بتاريخ ${formatDualDate(planEndDate)}${m.direction === "reverse" ? " (حفظاً معكوساً من سورة الناس)" : ""}`);
     } else {
       const r = computePace(m);
-      totalDays = Math.max(Math.round(r.totalDays), 1);
       filledBeads = Math.min(TOTAL_AJZA, Math.round(((r.totalWeeks > 0 ? (Number(m.pagesPerWeek) * 30 / 7) : 0) / 20)));
       html += `<div class="stats-grid">
         ${statCardHTML(r.perDay.toFixed(2), "صفحة في يوم الحفظ")}
         ${statCardHTML(r.totalYears.toFixed(2), "سنة تقريباً")}
         ${statCardHTML(Math.ceil(r.totalWeeks), "أسبوعاً")}
       </div>`;
-      html += inspireHTML(`بإذن الله، بناءً على معدلك ستبدأ بتاريخ ${formatDualDate(getPlanStartDate())} وتختم حفظ ${hasPreMem ? "بقية" : ""} القرآن الكريم بتاريخ ${formatDualDate(r.finishDate)}${m.direction === "reverse" ? " (حفظاً معكوساً من سورة الناس)" : ""}`);
+      html += isCapped
+        ? inspireHTML(`بإذن الله ستبدأ الخطة بتاريخ ${formatDualDate(getPlanStartDate())} وتتوقف بتاريخ نهاية الخطة الذي اخترته ${formatDualDate(planEndDate)}، ولن يكون قد اكتمل حفظ ${hasPreMem ? "بقية " : ""}القرآن الكريم بالكامل بحلول هذا التاريخ بهذا المعدّل`)
+        : inspireHTML(`بإذن الله، بناءً على معدلك ستبدأ بتاريخ ${formatDualDate(getPlanStartDate())} وتختم حفظ ${hasPreMem ? "بقية" : ""} القرآن الكريم بتاريخ ${formatDualDate(planEndDate)}${m.direction === "reverse" ? " (حفظاً معكوساً من سورة الناس)" : ""}`);
     }
     if (hasPreMem) {
       filledBeads = Math.max(filledBeads, Math.min(TOTAL_AJZA, Math.round((preMemCount * 30) / TOTAL_PAGES)));
@@ -1791,7 +1990,7 @@
         <label class="field-label">عدد الصفحات يومياً (تنازلياً من الصفحة الأعلى)</label>
         <div class="field-row">
           <div class="field-group">
-            <input type="number" min="1" id="${prefix}review-reverse-pages" value="${r.reversePagesPerDay}" />
+            <input type="number" min="0.5" step="0.5" id="${prefix}review-reverse-pages" value="${r.reversePagesPerDay}" />
           </div>
         </div>
 
@@ -1974,7 +2173,7 @@
     }
 
     if (r.reverseMode) {
-      const perDay = Math.max(Math.round(Number(r.reversePagesPerDay) || 1), 1);
+      const perDay = getReversePagesPerDay(r);
       const planStart = getPlanStartDate();
 
       if (r.reverseRepeat) {
@@ -1990,7 +2189,7 @@
 
         const html = `
           <div class="stats-grid">
-            ${statCardHTML(perDay, "صفحة يومياً تنازلياً")}
+            ${statCardHTML(formatPerDayValue(perDay), "صفحة يومياً تنازلياً")}
             ${statCardHTML(totalPages, "إجمالي صفحات النطاق")}
             ${statCardHTML(programDays, "يوماً لبرنامج التكرار")}
           </div>
@@ -2008,7 +2207,7 @@
 
       const html = `
         <div class="stats-grid">
-          ${statCardHTML(perDay, "صفحة يومياً تنازلياً")}
+          ${statCardHTML(formatPerDayValue(perDay), "صفحة يومياً تنازلياً")}
           ${statCardHTML(activeDays, "يوم مراجعة فعلي")}
           ${statCardHTML(totalPages, "إجمالي الصفحات")}
         </div>
@@ -2112,19 +2311,19 @@
         ? `وستتكرر دورة مراجعة هذا النطاق كل ${cycleDays} يوماً حتى تتوقف تلقائياً مع انتهاء خطة الحفظ بتاريخ ${formatDualDate(programFinish)} (${numCycles} دورة تقريباً)`
         : `وستتكرر دورة مراجعة هذا النطاق كل ${cycleDays} يوماً حتى ${formatDualDate(programFinish)} بإذن الله (${numCycles} دورة تقريباً)`;
     } else if (r.reverseMode && r.reverseRepeat) {
-      const perDay = Math.max(Math.round(Number(r.reversePagesPerDay) || 1), 1);
+      const perDay = getReversePagesPerDay(r);
       const programDays = getProgramDays(r);
       const programFinish = addDays(planStart, programDays);
       reviewDays = buildReverseCyclicAssignments(range.from, range.to, perDay, programDays, getEffectiveActiveDays(r), planStart);
 
-      reviewStatCardHTML = statCardHTML(perDay, "صفحة مراجعة يومياً (تنازلياً متكررة)");
+      reviewStatCardHTML = statCardHTML(formatPerDayValue(perDay), "صفحة مراجعة يومياً (تنازلياً متكررة)");
       reviewInspireText = `وستكرر مراجعة عكسية تنازلية من الصفحة ${range.to} إلى الصفحة ${range.from} حتى ${formatDualDate(programFinish)} بإذن الله`;
     } else if (r.reverseMode) {
-      const perDay = Math.max(Math.round(Number(r.reversePagesPerDay) || 1), 1);
+      const perDay = getReversePagesPerDay(r);
       reviewDays = buildReverseDailyAssignments(range.from, range.to, perDay, getEffectiveActiveDays(r), planStart);
       const finishDate = reviewDays.length ? reviewDays[reviewDays.length - 1].date : planStart;
 
-      reviewStatCardHTML = statCardHTML(perDay, "صفحة مراجعة يومياً (تنازلياً)");
+      reviewStatCardHTML = statCardHTML(formatPerDayValue(perDay), "صفحة مراجعة يومياً (تنازلياً)");
       reviewInspireText = `وستراجع تنازلياً من الصفحة ${range.to} إلى الصفحة ${range.from}، لتختم بتاريخ ${formatDate(finishDate)} بإذن الله`;
     } else {
       const totalDays = computeTotalDays(r);
@@ -2263,7 +2462,11 @@
   /* ---------------- Build day-by-day plan assignments ---------------- */
   // Returns an array (length totalDays) of { date, isRest, fromPage, toPage, isFilled }
   function buildDailyAssignments(startPage, endPage, totalDays, activeDaysList, startDateObj) {
-    const totalPagesToCover = Math.max(endPage - startPage + 1, 1);
+    // نعمل داخلياً بوحدة "نصف الصفحة" (half-unit) بدل الصفحة الكاملة، حتى يمكن توزيع حصة يومية
+    // أصغر من صفحة واحدة (نصف صفحة) بدقة بدل تقريبها دائماً لأقرب صفحة كاملة صعوداً.
+    const totalHalfUnitsToCover = Math.max((endPage - startPage + 1) * 2, 1);
+    const startUnit = pageToHalfUnit(startPage, false);
+    const endUnit = pageToHalfUnit(endPage, true);
 
     // Count active (non-rest) days first
     let activeDaysCount = 0;
@@ -2274,7 +2477,7 @@
     activeDaysCount = Math.max(activeDaysCount, 1);
 
     const days = [];
-    let assignedSoFar = 0;
+    let assignedHalves = 0;
     let activeSeen = 0;
 
     for (let i = 0; i < totalDays; i++) {
@@ -2288,22 +2491,37 @@
       }
 
       const daysRemainingActive = activeDaysCount - activeSeen;
-      const pagesRemaining = totalPagesToCover - assignedSoFar;
-      let pagesToday = Math.round(pagesRemaining / Math.max(daysRemainingActive, 1));
-      pagesToday = Math.max(pagesToday, 0);
-      if (assignedSoFar >= totalPagesToCover) pagesToday = 0;
+      const halvesRemaining = totalHalfUnitsToCover - assignedHalves;
+      let halvesToday = Math.round(halvesRemaining / Math.max(daysRemainingActive, 1));
+      halvesToday = Math.max(halvesToday, 0);
+      if (assignedHalves >= totalHalfUnitsToCover) halvesToday = 0;
 
-      const fromP = startPage + assignedSoFar;
-      let toP = Math.min(fromP + pagesToday - 1, endPage);
-      const isFilled = assignedSoFar >= totalPagesToCover;
-      if (!isFilled && toP >= fromP) {
-        toP = nudgeForwardBoundary(toP, endPage);
-        pagesToday = toP - fromP + 1;
+      const fromUnit = startUnit + assignedHalves;
+      let toUnit = Math.min(fromUnit + halvesToday - 1, endUnit);
+      const isFilled = assignedHalves >= totalHalfUnitsToCover;
+      if (!isFilled && toUnit >= fromUnit) {
+        // محاذاة نهاية اليوم على حدود السور تُطبَّق فقط عندما ينتهي اليوم أصلاً عند نهاية صفحة
+        // كاملة (لا معنى لمحاولة "مدّها" صفحة كاملة إضافية إن كان المقصود أن ينتهي اليوم في منتصف
+        // صفحة بالضبط).
+        if (isHalfUnitTop(toUnit + 1)) {
+          const nudgedUnit = pageToHalfUnit(nudgeForwardBoundary(halfUnitToPage(toUnit), endPage), true);
+          if (nudgedUnit <= endUnit) toUnit = nudgedUnit;
+        }
+        halvesToday = toUnit - fromUnit + 1;
       }
 
-      days.push({ date, isRest: false, fromPage: isFilled ? null : fromP, toPage: isFilled ? null : toP, isFilled });
+      if (isFilled) {
+        days.push({ date, isRest: false, fromPage: null, toPage: null, isFilled: true });
+      } else {
+        days.push({
+          date, isRest: false,
+          fromPage: halfUnitToPage(fromUnit), toPage: halfUnitToPage(toUnit),
+          parts: halfUnitsToParts(fromUnit, toUnit),
+          isFilled: false,
+        });
+      }
 
-      assignedSoFar += pagesToday;
+      assignedHalves += halvesToday;
       activeSeen++;
     }
     return days;
@@ -2325,7 +2543,9 @@
   function buildSegmentedDailyAssignments(segments, totalDays, activeDaysList, startDateObj, direction) {
     const isReverse = direction === "reverse";
     const orderedSegments = isReverse ? segments.slice().reverse() : segments;
-    const totalPagesToCover = orderedSegments.reduce((s, r) => s + (r.to - r.from + 1), 0) || 1;
+    // نعمل داخلياً بوحدة "نصف الصفحة" (half-unit) بدل الصفحة الكاملة، حتى يمكن توزيع حصة يومية
+    // أصغر من صفحة واحدة (نصف صفحة) بدقة بدل تقريبها دائماً لصفحة كاملة على الأقل.
+    const totalHalvesToCover = orderedSegments.reduce((s, r) => s + (r.to - r.from + 1) * 2, 0) || 1;
 
     let activeDaysCount = 0;
     for (let i = 0; i < totalDays; i++) {
@@ -2337,9 +2557,10 @@
     // "الحفظ المعكوس": نبني سلفاً قائمة "كتل" مرتّبة بترتيب السير الفعلي الجديد — كل مقطع (segment)
     // بترتيبه المعكوس أصلاً (orderedSegments)، وداخل كل مقطع كل سورة تظهر فيه من الأعلى صفحة بداية
     // للأدنى، وكل كتلة تحمل صفحاتها الخاصة (من بداية السورة أو بداية المقطع أيهما أعلى، تصاعدياً حتى
-    // نهاية السورة أو نهاية المقطع أيهما أدنى). المشي لاحقاً على هذه القائمة يوماً بيوم — بأخذ quota
-    // صفحة من حيث توقفنا تماماً، عابرين حدود الكتل عند الحاجة دون أي تقريب أو محاذاة اصطناعية — هو ما
-    // يُنتج بالضبط منطق "إكمال بقية السورة الحالية ثم الانتقال لبداية السورة السابقة".
+    // نهاية السورة أو نهاية المقطع أيهما أدنى) معبَّراً عنها بوحدات أنصاف الصفحات. المشي لاحقاً على
+    // هذه القائمة يوماً بيوم — بأخذ quota نصف-صفحة من حيث توقفنا تماماً، عابرين حدود الكتل عند
+    // الحاجة دون أي تقريب أو محاذاة اصطناعية — هو ما يُنتج بالضبط منطق "إكمال بقية السورة الحالية ثم
+    // الانتقال لبداية السورة السابقة".
     function buildReverseBlocks() {
       const blocks = [];
       orderedSegments.forEach((seg) => {
@@ -2349,7 +2570,7 @@
           const sEnd = surahEndPage(idx);
           const blockFrom = Math.max(sStart, seg.from);
           const blockTo = Math.min(sEnd, seg.to);
-          if (blockTo >= blockFrom) blocks.push({ from: blockFrom, to: blockTo });
+          if (blockTo >= blockFrom) blocks.push({ fromUnit: pageToHalfUnit(blockFrom, false), toUnit: pageToHalfUnit(blockTo, true) });
           if (sStart <= seg.from || idx === 0) break;
           idx--;
         }
@@ -2358,24 +2579,24 @@
     }
 
     const days = [];
-    let assignedSoFar = 0;
+    let assignedSoFar = 0; // بوحدة أنصاف الصفحات
     let activeSeen = 0;
 
     // متغيّرات مسار "الحفظ الأمامي" (forward) فقط
     let segIdx = 0;
-    let cursor = orderedSegments.length ? orderedSegments[0].from : 1;
+    let cursorUnit = orderedSegments.length ? pageToHalfUnit(orderedSegments[0].from, false) : 0;
 
     // متغيّرات مسار "الحفظ المعكوس" (reverse) فقط
     const blocks = isReverse ? buildReverseBlocks() : null;
     let blockIdx = 0;
-    let blockCursor = isReverse && blocks.length ? blocks[0].from : 0;
+    let blockCursorUnit = isReverse && blocks.length ? blocks[0].fromUnit : 0;
 
     const isDone = () => (isReverse ? blockIdx >= blocks.length : segIdx >= orderedSegments.length);
 
     // نطاق أمان: أحياناً تحتاج المحاذاة على حدود السور أياماً إضافية قليلة عن التقدير الأصلي (لأن بعض
     // الأيام تكون أقصر من الحصة الكاملة كي تنتهي بالضبط عند بداية سورة). لذلك لا نتوقف عند totalDays
     // بالضبط إن تبقّت صفحات لم تُوزّع بعد — نُكمل بأيام إضافية (ضمن حدّ أقصى معقول) بدل أن تُفقد صفحات.
-    const maxIterations = totalDays + Math.ceil(totalPagesToCover / 2) + 30;
+    const maxIterations = totalDays + Math.ceil(totalHalvesToCover / 2) + 30;
     for (let i = 0; i < maxIterations && (i < totalDays || !isDone()); i++) {
       const date = addDays(startDateObj, i);
       const dow = (startDateObj.getDay() + 1 + i) % 7;
@@ -2389,43 +2610,58 @@
       }
 
       const daysRemainingActive = activeDaysCount - activeSeen;
-      const pagesRemaining = Math.max(totalPagesToCover - assignedSoFar, 1);
-      const quota = Math.max(Math.round(pagesRemaining / Math.max(daysRemainingActive, 1)), 1);
+      const halvesRemaining = Math.max(totalHalvesToCover - assignedSoFar, 1);
+      const quotaHalf = Math.max(Math.round(halvesRemaining / Math.max(daysRemainingActive, 1)), 1);
 
       if (isReverse) {
-        // نأخذ quota صفحة بدءاً من موضع التوقف الحالي (blockCursor داخل الكتلة blocks[blockIdx])؛ إن لم
-        // تكفِ الكتلة الحالية نُكمل الباقي من الكتلة التالية مباشرة (وهي دوماً بداية السورة السابقة
-        // تصاعدياً) — فيتجمّع لليوم أكثر من نطاق صفحات منفصل عند الحاجة.
-        let need = quota;
-        const ranges = [];
+        // نأخذ quotaHalf نصف-صفحة بدءاً من موضع التوقف الحالي (blockCursorUnit داخل الكتلة
+        // blocks[blockIdx])؛ إن لم تكفِ الكتلة الحالية نُكمل الباقي من الكتلة التالية مباشرة (وهي
+        // دوماً بداية السورة السابقة تصاعدياً) — فيتجمّع لليوم أكثر من نطاق صفحات منفصل عند الحاجة.
+        let need = quotaHalf;
+        let rawParts = [];
         while (need > 0 && blockIdx < blocks.length) {
           const b = blocks[blockIdx];
-          const take = Math.min(need, b.to - blockCursor + 1);
-          const from = blockCursor;
-          const to = blockCursor + take - 1;
-          ranges.push({ from, to });
-          blockCursor += take;
+          const take = Math.min(need, b.toUnit - blockCursorUnit + 1);
+          const fromU = blockCursorUnit;
+          const toU = blockCursorUnit + take - 1;
+          rawParts = rawParts.concat(halfUnitsToParts(fromU, toU));
+          blockCursorUnit += take;
           need -= take;
           assignedSoFar += take;
-          if (blockCursor > b.to) { blockIdx++; if (blocks[blockIdx]) blockCursor = blocks[blockIdx].from; }
+          if (blockCursorUnit > b.toUnit) { blockIdx++; if (blocks[blockIdx]) blockCursorUnit = blocks[blockIdx].fromUnit; }
         }
+        // دمج الأجزاء الكاملة المتلاصقة رقمياً حتى لو أتت من كتل/سور مختلفة (بدل تكرارها منفصلة
+        // بعلامات "+")، فتصبح مثلاً "526-530" بدل "526 + 527 + 528-530".
+        const parts = mergeAdjacentParts(rawParts);
         days.push({
-          date, isRest: false, ranges,
-          fromPage: ranges[0].from, toPage: ranges[ranges.length - 1].to,
+          date, isRest: false, parts,
+          fromPage: parts.length ? partStartPage(parts[0]) : null,
+          toPage: parts.length ? partEndPage(parts[parts.length - 1]) : null,
           isFilled: false,
         });
       } else {
         const seg = orderedSegments[segIdx];
-        const segRemaining = seg.to - cursor + 1;
-        const take0 = Math.max(Math.min(quota, segRemaining), 1);
-        let fromP = cursor;
-        let toP = cursor + take0 - 1;
-        if (toP < seg.to) toP = nudgeForwardBoundary(toP, seg.to); // محاذاة على نهاية سورة إن أمكن بفارق صفحة واحدة
-        const take = toP - fromP + 1;
-        cursor = toP + 1;
-        if (cursor > seg.to) { segIdx++; if (orderedSegments[segIdx]) cursor = orderedSegments[segIdx].from; }
+        const segEndUnit = pageToHalfUnit(seg.to, true);
+        const segRemainingHalves = segEndUnit - cursorUnit + 1;
+        const take0 = Math.max(Math.min(quotaHalf, segRemainingHalves), 1);
+        const fromUnit = cursorUnit;
+        let toUnit = cursorUnit + take0 - 1;
+        // محاذاة على نهاية سورة إن أمكن بفارق صفحة واحدة — فقط حين ينتهي اليوم أصلاً عند نهاية
+        // صفحة كاملة (لا معنى لمدّها صفحة كاملة إضافية إن كان المقصود إنهاء اليوم في منتصف صفحة).
+        if (toUnit < segEndUnit && isHalfUnitTop(toUnit + 1)) {
+          const nudgedUnit = pageToHalfUnit(nudgeForwardBoundary(halfUnitToPage(toUnit), seg.to), true);
+          if (nudgedUnit <= segEndUnit) toUnit = nudgedUnit;
+        }
+        const take = toUnit - fromUnit + 1;
+        cursorUnit = toUnit + 1;
+        if (cursorUnit > segEndUnit) { segIdx++; if (orderedSegments[segIdx]) cursorUnit = pageToHalfUnit(orderedSegments[segIdx].from, false); }
         assignedSoFar += take;
-        days.push({ date, isRest: false, fromPage: fromP, toPage: toP, isFilled: false });
+        days.push({
+          date, isRest: false,
+          fromPage: halfUnitToPage(fromUnit), toPage: halfUnitToPage(toUnit),
+          parts: halfUnitsToParts(fromUnit, toUnit),
+          isFilled: false,
+        });
       }
       activeSeen++;
     }
@@ -2437,17 +2673,23 @@
   // of the range (endPage, the most recently memorized pages) and working backward day by day until
   // startPage is reached. The plan's length (in calendar days) falls out of the page count, so there is
   // no separate "totalDays" input: the loop simply stops once every page has been covered.
+  // نعمل داخلياً بوحدة "نصف الصفحة" كما في دوال الحفظ، لكن بما أن المسار هنا تنازلي (من الصفحة
+  // الأعلى للأدنى)، فإن أول نصف يُستهلك من كل صفحة تنقسم على يومين هو "اللي تحت" (لأنه أقرب من جهة
+  // الصفحة الأعلى التي بدأ منها التراجع)، ثم يليه "اللي فوق" في اليوم التالي — عكس ترتيب الحفظ
+  // الأمامي (فوق ثم تحت) تماماً كما هو متوقع فيزيائياً أثناء التراجع.
   function buildReverseDailyAssignments(startPage, endPage, pagesPerDay, activeDaysList, startDateObj) {
-    const totalPagesToCover = Math.max(endPage - startPage + 1, 1);
-    const perDay = Math.max(Math.round(Number(pagesPerDay) || 1), 1);
+    const startUnit = pageToHalfUnit(startPage, false);
+    const endUnit = pageToHalfUnit(endPage, true);
+    const totalHalfUnitsToCover = Math.max(endUnit - startUnit + 1, 1);
+    const quotaHalf = Math.max(Math.round((Number(pagesPerDay) || 1) * 2), 1);
 
     const days = [];
-    let remainingTop = endPage; // highest page not yet assigned
+    let remainingTopUnit = endUnit; // أعلى نصف-صفحة لم يُخصَّص بعد
     let i = 0;
     // Safety cap in case activeDaysList somehow matches no day of the week (isDayActive always false).
-    const maxIterations = Math.ceil(totalPagesToCover / perDay) * 14 + 400;
+    const maxIterations = Math.ceil(totalHalfUnitsToCover / quotaHalf) * 14 + 400;
 
-    while (remainingTop >= startPage && i < maxIterations) {
+    while (remainingTopUnit >= startUnit && i < maxIterations) {
       const date = addDays(startDateObj, i);
       const dow = (startDateObj.getDay() + 1 + i) % 7; // align with WEEK_DAYS (starts Saturday)
       const isRest = !isDayActive(WEEK_DAYS[dow], activeDaysList);
@@ -2458,12 +2700,22 @@
         continue;
       }
 
-      const toP = remainingTop;
-      let fromP = Math.max(toP - perDay + 1, startPage);
-      if (fromP > startPage) fromP = nudgeReverseBoundary(fromP, startPage); // محاذاة على بداية سورة إن أمكن بفارق صفحة واحدة
-      days.push({ date, isRest: false, fromPage: fromP, toPage: toP, isFilled: false });
+      const toUnit = remainingTopUnit;
+      let fromUnit = Math.max(toUnit - quotaHalf + 1, startUnit);
+      // محاذاة على بداية سورة إن أمكن بفارق صفحة واحدة — فقط حين يبدأ اليوم أصلاً عند بداية صفحة
+      // كاملة (لا معنى لمدّها صفحة كاملة إضافية إن كان المقصود أن يبدأ اليوم من منتصف صفحة بالضبط).
+      if (fromUnit > startUnit && isHalfUnitTop(fromUnit)) {
+        const nudgedUnit = pageToHalfUnit(nudgeReverseBoundary(halfUnitToPage(fromUnit), startPage), false);
+        if (nudgedUnit >= startUnit) fromUnit = nudgedUnit;
+      }
+      days.push({
+        date, isRest: false,
+        fromPage: halfUnitToPage(fromUnit), toPage: halfUnitToPage(toUnit),
+        parts: halfUnitsToParts(fromUnit, toUnit),
+        isFilled: false,
+      });
 
-      remainingTop = fromP - 1;
+      remainingTopUnit = fromUnit - 1;
       i++;
     }
     return days;
@@ -2520,7 +2772,8 @@
     for (let i = 0; i < limit; i++) {
       const d = memoDays[i];
       if (d && !d.isRest && !d.isFilled) {
-        dayPageRanges(d).forEach((r) => { total += r.to - r.from + 1; });
+        // النطاق النصفي (half) يُحتسب بنصف صفحة بدل صفحة كاملة.
+        dayPageRanges(d).forEach((r) => { total += r.half ? 0.5 : (r.to - r.from + 1); });
       }
     }
     return total;
@@ -2538,7 +2791,14 @@
     const limit = Math.min(beforeIndex, memoDays.length);
     for (let i = 0; i < limit; i++) {
       const d = memoDays[i];
-      if (d && !d.isRest && !d.isFilled) raw.push(...dayPageRanges(d));
+      if (d && !d.isRest && !d.isFilled) {
+        dayPageRanges(d).forEach((r) => {
+          // النصف الأعلى وحده (top) لا يعني اكتمال حفظ الصفحة بعد؛ نتجاهله هنا وننتظر يوم النصف
+          // الأسفل الذي يُعامَل عندها كصفحة مكتملة لأغراض ربط المراجعة التلقائية بما تمّ حفظه.
+          if (r.half === "top") return;
+          raw.push({ from: r.from, to: r.to });
+        });
+      }
     }
     return raw.length ? mergeReviewSegments(raw) : [];
   }
@@ -2627,7 +2887,7 @@
       return { kind: "cyclic", days, range, cycleDays, programDays, numCycles };
     }
     if (r.reverseMode) {
-      const perDay = Math.max(Math.round(Number(r.reversePagesPerDay) || 1), 1);
+      const perDay = getReversePagesPerDay(r);
       if (r.reverseRepeat) {
         const programDays = getProgramDays(r);
         const days = buildReverseCyclicAssignments(range.from, range.to, perDay, programDays, activeDaysList, startDateObj);
@@ -2646,13 +2906,8 @@
     const today = getPlanStartDate();
     if (state.tab === "memorize") {
       const m = state.memo;
-      let totalDays;
-      if (m.mode === "duration") {
-        totalDays = computeDuration(m).totalDays;
-      } else {
-        totalDays = computePace(m).totalDays;
-      }
-      totalDays = Math.max(Math.round(totalDays), 1);
+      const totalDays = getMemoProgramDays(m);
+      const isCapped = isMemoEndDateCapped(m);
       const startPage = getRemainingStartPage(m);
       const hasPreMem = getPreMemorizedCount(m) > 0;
       const days = buildSegmentedDailyAssignments(getRemainingSegments(m), totalDays, getEffectiveActiveDays(m), today, m.direction);
@@ -2660,7 +2915,9 @@
       return {
         days,
         title: isReverse ? "خطة الحفظ المعكوس" : "خطة الحفظ",
-        subtitle: hasPreMem
+        subtitle: isCapped
+          ? `${totalDays} يوماً حتى تاريخ نهاية الخطة الذي اخترته (${formatDualDate(addDays(today, totalDays))})، دون اكتمال حفظ ${hasPreMem ? "بقية " : ""}القرآن الكريم كاملاً بهذا المعدّل`
+          : hasPreMem
           ? `${totalDays} يوماً لختم حفظ باقي القرآن الكريم (${isReverse ? `معكوساً حتى الصفحة ${startPage}` : `من الصفحة ${startPage}`}) بإذن الله`
           : `${totalDays} يوماً لختم حفظ القرآن الكريم ${isReverse ? "معكوساً من سورة الناس" : ""} بإذن الله`,
       };
@@ -2701,14 +2958,14 @@
         return {
           days: sched.days,
           title: "جدول المراجعة العكسية الدوري",
-          subtitle: `تكرار مراجعة تنازلية من الصفحة ${range.to} إلى الصفحة ${range.from} بمعدل ${sched.perDay} صفحة يومياً — ${endText}`,
+          subtitle: `تكرار مراجعة تنازلية من الصفحة ${range.to} إلى الصفحة ${range.from} بمعدل ${formatPerDayValue(sched.perDay)} صفحة يومياً — ${endText}`,
         };
       }
       if (sched.kind === "reverse") {
         return {
           days: sched.days,
           title: "جدول المراجعة العكسية",
-          subtitle: `مراجعة تنازلية من الصفحة ${range.to} إلى الصفحة ${range.from} بمعدل ${sched.perDay} صفحة يومياً`,
+          subtitle: `مراجعة تنازلية من الصفحة ${range.to} إلى الصفحة ${range.from} بمعدل ${formatPerDayValue(sched.perDay)} صفحة يومياً`,
         };
       }
       return { days: sched.days, title: "جدول المراجعة", subtitle: `مراجعة الصفحات من ${range.from} إلى ${range.to} خلال ${sched.totalDays} يوماً` };
@@ -2720,8 +2977,7 @@
     const today = getPlanStartDate();
 
     const m = state.memo;
-    let memoTotalDays = (m.mode === "duration") ? computeDuration(m).totalDays : computePace(m).totalDays;
-    memoTotalDays = Math.max(Math.round(memoTotalDays), 1);
+    const memoTotalDays = getMemoProgramDays(m);
     const memoStartPage = getRemainingStartPage(m);
     const memoDays = buildSegmentedDailyAssignments(getRemainingSegments(m), memoTotalDays, getEffectiveActiveDays(m), today, m.direction);
 
@@ -2749,9 +3005,9 @@
         : r.endMode === "withMemo"
         ? `تتوقف مع انتهاء خطة الحفظ بتاريخ ${formatDualDate(addDays(today, sched.programDays))}`
         : `على مدار البرنامج`;
-      reviewSubtitle = `ومع تكرار مراجعة عكسية تنازلية من الصفحة ${range.to} إلى الصفحة ${range.from} بمعدل ${sched.perDay} صفحة يومياً (${endText})`;
+      reviewSubtitle = `ومع تكرار مراجعة عكسية تنازلية من الصفحة ${range.to} إلى الصفحة ${range.from} بمعدل ${formatPerDayValue(sched.perDay)} صفحة يومياً (${endText})`;
     } else if (sched.kind === "reverse") {
-      reviewSubtitle = `ومراجعة عكسية تنازلية من الصفحة ${range.to} إلى الصفحة ${range.from} بمعدل ${sched.perDay} صفحة يومياً`;
+      reviewSubtitle = `ومراجعة عكسية تنازلية من الصفحة ${range.to} إلى الصفحة ${range.from} بمعدل ${formatPerDayValue(sched.perDay)} صفحة يومياً`;
     } else {
       reviewSubtitle = `ومراجعة الصفحات من ${range.from} إلى ${range.to}`;
     }
@@ -2767,10 +3023,16 @@
       });
     }
 
+    const memoIsCapped = isMemoEndDateCapped(m);
+    const memoPhrase = memoIsCapped
+      ? `حفظ ${getPreMemorizedCount(m) > 0 ? "باقي " : ""}القرآن حتى تاريخ نهاية الخطة (${formatDualDate(addDays(today, memoTotalDays))})${m.direction === "reverse" ? " معكوساً من سورة الناس" : ""}`
+      : getPreMemorizedCount(m) > 0
+      ? `حفظ باقي القرآن ${m.direction === "reverse" ? "معكوساً من سورة الناس" : `من الصفحة ${memoStartPage}`}`
+      : (m.direction === "reverse" ? "حفظ القرآن كاملاً معكوساً من سورة الناس" : "حفظ القرآن كاملاً");
     return {
       days,
       title: "الخطة الشاملة (حفظ ومراجعة)",
-      subtitle: `${getPreMemorizedCount(m) > 0 ? `حفظ باقي القرآن ${m.direction === "reverse" ? "معكوساً من سورة الناس" : `من الصفحة ${memoStartPage}`}` : (m.direction === "reverse" ? "حفظ القرآن كاملاً معكوساً من سورة الناس" : "حفظ القرآن كاملاً")}، ${reviewSubtitle}`,
+      subtitle: `${memoPhrase}، ${reviewSubtitle}`,
     };
   }
 
@@ -2915,9 +3177,7 @@
       } else if (reviewDay.isFilled || reviewDay.fromPage == null) {
         reviewLabel = "✓ اكتملت المراجعة";
       } else {
-        reviewLabel = reviewDay.fromPage === reviewDay.toPage
-          ? `مراجعة: ص${reviewDay.fromPage}`
-          : `مراجعة: ${reviewDay.fromPage}-${reviewDay.toPage}`;
+        reviewLabel = `مراجعة: ${formatDayRangesShort(reviewDay)}`;
       }
 
       // نص طويل (تعدد نطاقات صفحات في يوم واحد ضمن الحفظ المعكوس) يأخذ خط أصغر حتى يبقى داخل مربع
