@@ -1254,7 +1254,7 @@
           <button class="mode-btn${m.direction !== "reverse" ? " active" : ""}" id="${prefix}memo-dir-forward">من البداية (الفاتحة)</button>
           <button class="mode-btn${m.direction === "reverse" ? " active" : ""}" id="${prefix}memo-dir-reverse">حفظ معكوس (من الناس)</button>
         </div>
-        <p class="hint">${m.direction === "reverse" ? "سيبدأ الحفظ من نهاية القرآن الكريم (سورة الناس) ويتراجع صفحة فصفحة نحو البداية." : "الحفظ بالترتيب المعتاد من الفاتحة حتى ختم القرآن الكريم."}</p>
+        <p class="hint">${m.direction === "reverse" ? "سيبدأ الحفظ من الجزء الأخير في القرآن الكريم (قرب سورة الناس) مقترباً من البداية جزءاً بعد جزء، وداخل كل جزء تُحسب الصفحات تصاعدياً من بداية سورته." : "الحفظ بالترتيب المعتاد من الفاتحة حتى ختم القرآن الكريم."}</p>
       </div>`;
 
     return `
@@ -2113,9 +2113,13 @@
   // Like buildDailyAssignments but spreads the pages across one or more page SEGMENTS instead of a
   // single contiguous range — used for memorization when the user has memorized pages in more than
   // one place (e.g. 1-77 and 500-604) and the remaining gap(s) need to be filled in. direction
-  // "reverse" walks the segments from the last one backward (starting "from Surat An-Nas"); the
-  // default walks them forward. Each day's pages always stay inside a single segment: once a
-  // segment is exhausted the plan moves on to the next one instead of jumping across a gap.
+  // "reverse" only changes WHICH segment is tackled first — it walks the segments starting from the
+  // last one (starting "from Surat An-Nas") instead of the first. Within any single segment, pages
+  // are always counted the normal way: from that segment's own beginning upward (ascending), aligned
+  // to surah starts — matching "من حيث ترتيب السور فقط، أما الصفحات فتُحسب من بداية السورة تصاعدياً".
+  // The default (forward) direction simply walks the segments in their given order, same rule inside
+  // each one. Each day's pages always stay inside a single segment: once a segment is exhausted the
+  // plan moves on to the next one instead of jumping across a gap.
   function buildSegmentedDailyAssignments(segments, totalDays, activeDaysList, startDateObj, direction) {
     const isReverse = direction === "reverse";
     const orderedSegments = isReverse ? segments.slice().reverse() : segments;
@@ -2132,7 +2136,7 @@
     let assignedSoFar = 0;
     let activeSeen = 0;
     let segIdx = 0;
-    let cursor = orderedSegments.length ? (isReverse ? orderedSegments[0].to : orderedSegments[0].from) : 1;
+    let cursor = orderedSegments.length ? orderedSegments[0].from : 1;
 
     for (let i = 0; i < totalDays; i++) {
       const date = addDays(startDateObj, i);
@@ -2151,26 +2155,14 @@
       const quota = Math.max(Math.round(pagesRemaining / Math.max(daysRemainingActive, 1)), 1);
 
       const seg = orderedSegments[segIdx];
-      let fromP, toP, take;
-      if (isReverse) {
-        const segRemaining = cursor - seg.from + 1;
-        take = Math.max(Math.min(quota, segRemaining), 1);
-        toP = cursor;
-        fromP = cursor - take + 1;
-        if (fromP > seg.from) fromP = nudgeReverseBoundary(fromP, seg.from); // محاذاة على بداية سورة إن أمكن بفارق صفحة واحدة
-        take = toP - fromP + 1;
-        cursor = fromP - 1;
-        if (cursor < seg.from) { segIdx++; if (orderedSegments[segIdx]) cursor = orderedSegments[segIdx].to; }
-      } else {
-        const segRemaining = seg.to - cursor + 1;
-        take = Math.max(Math.min(quota, segRemaining), 1);
-        fromP = cursor;
-        toP = cursor + take - 1;
-        if (toP < seg.to) toP = nudgeForwardBoundary(toP, seg.to); // محاذاة على نهاية سورة إن أمكن بفارق صفحة واحدة
-        take = toP - fromP + 1;
-        cursor = toP + 1;
-        if (cursor > seg.to) { segIdx++; if (orderedSegments[segIdx]) cursor = orderedSegments[segIdx].from; }
-      }
+      const segRemaining = seg.to - cursor + 1;
+      const take0 = Math.max(Math.min(quota, segRemaining), 1);
+      const fromP = cursor;
+      let toP = cursor + take0 - 1;
+      if (toP < seg.to) toP = nudgeForwardBoundary(toP, seg.to); // محاذاة على نهاية سورة إن أمكن بفارق صفحة واحدة
+      const take = toP - fromP + 1;
+      cursor = toP + 1;
+      if (cursor > seg.to) { segIdx++; if (orderedSegments[segIdx]) cursor = orderedSegments[segIdx].from; }
 
       assignedSoFar += take;
       days.push({ date, isRest: false, fromPage: fromP, toPage: toP, isFilled: false });
