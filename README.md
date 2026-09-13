@@ -1254,7 +1254,7 @@
           <button class="mode-btn${m.direction !== "reverse" ? " active" : ""}" id="${prefix}memo-dir-forward">من البداية (الفاتحة)</button>
           <button class="mode-btn${m.direction === "reverse" ? " active" : ""}" id="${prefix}memo-dir-reverse">حفظ معكوس (من الناس)</button>
         </div>
-        <p class="hint">${m.direction === "reverse" ? "سيبدأ الحفظ من الجزء الأخير في القرآن الكريم (قرب سورة الناس) مقترباً من البداية جزءاً بعد جزء، وداخل كل جزء تُحسب الصفحات تصاعدياً من بداية سورته." : "الحفظ بالترتيب المعتاد من الفاتحة حتى ختم القرآن الكريم."}</p>
+        <p class="hint">${m.direction === "reverse" ? "سيبدأ الحفظ من الجزء الأخير المتبقي (الأقرب لسورة الناس) ويتدرج نزولاً نحو البداية، وكل سورة تُحسب صفحاتها من بدايتها تصاعدياً." : "الحفظ بالترتيب المعتاد من الفاتحة حتى ختم القرآن الكريم."}</p>
       </div>`;
 
     return `
@@ -2112,14 +2112,18 @@
 
   // Like buildDailyAssignments but spreads the pages across one or more page SEGMENTS instead of a
   // single contiguous range — used for memorization when the user has memorized pages in more than
-  // one place (e.g. 1-77 and 500-604) and the remaining gap(s) need to be filled in. direction
-  // "reverse" only changes WHICH segment is tackled first — it walks the segments starting from the
-  // last one (starting "from Surat An-Nas") instead of the first. Within any single segment, pages
-  // are always counted the normal way: from that segment's own beginning upward (ascending), aligned
-  // to surah starts — matching "من حيث ترتيب السور فقط، أما الصفحات فتُحسب من بداية السورة تصاعدياً".
-  // The default (forward) direction simply walks the segments in their given order, same rule inside
-  // each one. Each day's pages always stay inside a single segment: once a segment is exhausted the
-  // plan moves on to the next one instead of jumping across a gap.
+  // one place (e.g. 1-77 and 500-604) and the remaining gap(s) need to be filled in.
+  // direction "forward": segments are walked in their given order; within a segment, pages are
+  // counted upward (ascending) from its own beginning, day by day.
+  // direction "reverse": segments are walked starting from the LAST one (closest to Surat An-Nas)
+  // backward toward the first. Within a segment, the OVERALL trend across days is downward (toward
+  // lower pages, closer to Al-Fatihah) — but a surah is never split so that a day dips a few pages
+  // into the surah before it just to complete a quota; instead, once a surah's remaining pages (going
+  // down to its own beginning) are fewer than a full day's quota, that whole remainder becomes ONE
+  // clean day starting exactly "من بداية السورة" (from the surah's own beginning), and whatever extra
+  // pages are needed to complete that day's quota are pulled from the day(s) right before it — which
+  // are still inside the surah above, so they simply keep a little more of it instead of releasing it
+  // downward. Net effect: "من حيث ترتيب السور تنازلي، ومن حيث الصفحات كل سورة تُحسب من بدايتها تصاعدياً".
   function buildSegmentedDailyAssignments(segments, totalDays, activeDaysList, startDateObj, direction) {
     const isReverse = direction === "reverse";
     const orderedSegments = isReverse ? segments.slice().reverse() : segments;
@@ -2136,36 +2140,89 @@
     let assignedSoFar = 0;
     let activeSeen = 0;
     let segIdx = 0;
-    let cursor = orderedSegments.length ? orderedSegments[0].from : 1;
+    let cursor = orderedSegments.length ? (isReverse ? orderedSegments[0].to : orderedSegments[0].from) : 1;
+    let segStartDayIdx = 0; // أول index في days[] يخص المقطع الحالي — لا نسحب صفحات من قبله
 
-    for (let i = 0; i < totalDays; i++) {
+    // يسحب "need" صفحة من نهاية الأيام المدفوعة سابقاً (بترتيب عكسي) لإعطائها لليوم الحالي، بدون
+    // تجاوز بداية المقطع الحالي. يرجع كمية ما تم سحبه فعلياً (قد تكون أقل من المطلوب لو الأيام السابقة
+    // لا تكفي، كأن يكون هذا أول يوم في المقطع).
+    // يسحب "need" صفحة من نهاية آخر يوم مدفوع فقط (بدون تسلسل رجوعاً لأكثر من يوم، حتى لا تتراكم
+    // التعديلات وتتضخم بعض الأيام) — لو ذلك اليوم غير كافٍ يُؤخذ منه ما يتوفر فقط وتُقبل حصة اليوم
+    // الحالي أقل من الكامل (يحدث فقط في أول يوم من مقطع/سورة قصيرة جداً).
+    function reclaimFromTail(need) {
+      for (let k = days.length - 1; k >= segStartDayIdx; k--) {
+        const d = days[k];
+        if (d.isRest || d.fromPage == null) continue;
+        const size = d.toPage - d.fromPage + 1;
+        const give = Math.min(size, need);
+        d.fromPage += give;
+        if (d.fromPage > d.toPage) { d.fromPage = null; d.toPage = null; d.isFilled = true; }
+        return give;
+      }
+      return 0;
+    }
+
+    // نطاق أمان: أحياناً تحتاج المحاذاة على حدود السور أياماً إضافية قليلة عن التقدير الأصلي (لأن بعض
+    // الأيام تكون أقصر من الحصة الكاملة كي تنتهي بالضبط عند بداية سورة). لذلك لا نتوقف عند totalDays
+    // بالضبط إن تبقّت صفحات لم تُوزّع بعد — نُكمل بأيام إضافية (ضمن حدّ أقصى معقول) بدل أن تُفقد صفحات.
+    const maxIterations = totalDays + Math.ceil(totalPagesToCover / 2) + 30;
+    for (let i = 0; i < maxIterations && (i < totalDays || segIdx < orderedSegments.length); i++) {
       const date = addDays(startDateObj, i);
       const dow = (startDateObj.getDay() + 1 + i) % 7;
-      const isRest = !isDayActive(WEEK_DAYS[dow], activeDaysList);
+      const isRest = i < totalDays && !isDayActive(WEEK_DAYS[dow], activeDaysList);
       if (isRest) { days.push({ date, isRest: true }); continue; }
 
-      if (assignedSoFar >= totalPagesToCover || segIdx >= orderedSegments.length) {
+      if (segIdx >= orderedSegments.length) {
         days.push({ date, isRest: false, fromPage: null, toPage: null, isFilled: true });
         activeSeen++;
         continue;
       }
 
       const daysRemainingActive = activeDaysCount - activeSeen;
-      const pagesRemaining = totalPagesToCover - assignedSoFar;
+      const pagesRemaining = Math.max(totalPagesToCover - assignedSoFar, 1);
       const quota = Math.max(Math.round(pagesRemaining / Math.max(daysRemainingActive, 1)), 1);
 
       const seg = orderedSegments[segIdx];
-      const segRemaining = seg.to - cursor + 1;
-      const take0 = Math.max(Math.min(quota, segRemaining), 1);
-      const fromP = cursor;
-      let toP = cursor + take0 - 1;
-      if (toP < seg.to) toP = nudgeForwardBoundary(toP, seg.to); // محاذاة على نهاية سورة إن أمكن بفارق صفحة واحدة
-      const take = toP - fromP + 1;
-      cursor = toP + 1;
-      if (cursor > seg.to) { segIdx++; if (orderedSegments[segIdx]) cursor = orderedSegments[segIdx].from; }
+      let fromP, toP;
 
-      assignedSoFar += take;
-      days.push({ date, isRest: false, fromPage: fromP, toPage: toP, isFilled: false });
+      if (isReverse) {
+        const idx = surahIndexForPage(cursor);
+        const sStart = Math.max(surahStartPageOf(idx), seg.from);
+        const surahSize = surahEndPage(idx) - surahStartPageOf(idx) + 1;
+        const rawFrom = Math.max(cursor - quota + 1, seg.from);
+        // لا نحاول "تنظيف" حدود السور القصيرة جداً (أقصر من نصف الحصة اليومية تقريباً) لأن ذلك
+        // يعني تصحيحاً شبه يومي في مناطق فيها عدة سور قصيرة متتالية (كجزء عمّ) فيتراكم بشكل غير مستقر؛
+        // هناك يُترك القص الطبيعي كما هو (نزول عادي بلا محاذاة خاصة).
+        if (rawFrom >= sStart || surahSize < Math.ceil(quota / 2)) {
+          fromP = rawFrom;
+          toP = cursor;
+        } else {
+          // إكمال ما تبقى من هذه السورة كيوم نظيف يبدأ من بدايتها، وسحب الفرق من اليوم السابق مباشرة
+          // (الذي ما زال داخل السورة الأعلى) بدل النزول لسورة أدنى لإكمال الحصة.
+          const remainInSurah = cursor - sStart + 1;
+          const deficit = quota - remainInSurah;
+          const reclaimed = deficit > 0 ? reclaimFromTail(deficit) : 0;
+          fromP = sStart;
+          toP = cursor + reclaimed;
+          assignedSoFar -= reclaimed;
+        }
+        const take = toP - fromP + 1;
+        assignedSoFar += take;
+        cursor = fromP - 1;
+        if (cursor < seg.from) { segIdx++; segStartDayIdx = days.length + 1; if (orderedSegments[segIdx]) cursor = orderedSegments[segIdx].to; }
+        days.push({ date, isRest: false, fromPage: fromP, toPage: toP, isFilled: false });
+      } else {
+        const segRemaining = seg.to - cursor + 1;
+        const take0 = Math.max(Math.min(quota, segRemaining), 1);
+        fromP = cursor;
+        toP = cursor + take0 - 1;
+        if (toP < seg.to) toP = nudgeForwardBoundary(toP, seg.to); // محاذاة على نهاية سورة إن أمكن بفارق صفحة واحدة
+        const take = toP - fromP + 1;
+        cursor = toP + 1;
+        if (cursor > seg.to) { segIdx++; if (orderedSegments[segIdx]) cursor = orderedSegments[segIdx].from; }
+        assignedSoFar += take;
+        days.push({ date, isRest: false, fromPage: fromP, toPage: toP, isFilled: false });
+      }
       activeSeen++;
     }
     return days;
