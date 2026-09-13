@@ -263,6 +263,43 @@
   }
   .hint { font-size: clamp(0.74rem, 1.8vw, 0.8rem); color: var(--cinnamon); margin: 0.5rem 0 0; }
 
+  /* ---- Searchable "surah" combo box (من/إلى سورة fields) ---- */
+  .surah-combo { position: relative; width: 100%; }
+  .surah-combo-input {
+    width: 100%;
+    border: none;
+    background: transparent;
+    font-family: 'Tajawal', sans-serif;
+    font-size: clamp(0.92rem, 2.4vw, 1.05rem);
+    font-weight: 700;
+    color: var(--espresso);
+    outline: none;
+  }
+  .surah-combo-list {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    left: 0;
+    max-height: 220px;
+    overflow-y: auto;
+    z-index: 20;
+    background: var(--paper);
+    border: 1px solid var(--sand);
+    border-radius: 10px;
+    box-shadow: 0 8px 20px rgba(43,28,19,0.18);
+  }
+  .surah-combo-option {
+    padding: 0.5rem 0.7rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--espresso);
+    border-bottom: 1px solid var(--linen);
+  }
+  .surah-combo-option:last-child { border-bottom: none; }
+  .surah-combo-option.highlighted, .surah-combo-option:hover { background: var(--linen); }
+  .surah-combo-empty { padding: 0.5rem 0.7rem; font-size: 0.85rem; color: var(--cinnamon); }
+
   .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(96px, 100%), 1fr));
@@ -1473,8 +1510,106 @@
     return { perDay, activeDays, finishDate, weekPlan };
   }
 
-  function surahOptionsHTML(selectedIndex) {
-    return SURAHS.map((s, i) => `<option value="${i}"${i === selectedIndex ? " selected" : ""}>${s[0]}</option>`).join("");
+  // -------- Searchable "surah" combo box (used by every من/إلى سورة field) --------
+  // Lets the user type a few letters of a surah's name and pick from a live-filtered
+  // list instead of scrolling a 114-option dropdown. Typing filters to names that
+  // START WITH what's typed (e.g. "الفج" -> "الفجر"); if nothing starts with it,
+  // falls back to matching anywhere in the name. Selecting an option — or clicking/
+  // tabbing away without picking one — always snaps the visible text back to a real
+  // surah name, so the underlying state (a surah index) can never end up pointing at
+  // free text the user typed that doesn't match any surah.
+  function normalizeArabicForSearch(s) {
+    return (s || "")
+      .replace(/[أإآ]/g, "ا")
+      .replace(/[\u064B-\u065F\u0670]/g, "") // remove tashkeel
+      .trim();
+  }
+  function filterSurahIndices(query) {
+    const q = normalizeArabicForSearch(query);
+    if (!q) return SURAHS.map((s, i) => i);
+    const starts = [];
+    const contains = [];
+    SURAHS.forEach((s, i) => {
+      const name = normalizeArabicForSearch(s[0]);
+      if (name.startsWith(q)) starts.push(i);
+      else if (name.includes(q)) contains.push(i);
+    });
+    return starts.length ? starts : contains;
+  }
+  function surahComboHTML(id, selectedIndex) {
+    const name = SURAHS[selectedIndex] ? SURAHS[selectedIndex][0] : "";
+    return `<div class="surah-combo">
+      <input type="text" class="surah-combo-input" id="${id}" autocomplete="off" spellcheck="false" value="${name}" placeholder="اكتب اسم السورة..." />
+      <div class="surah-combo-list" id="${id}-list" hidden></div>
+    </div>`;
+  }
+  function bindSurahCombo(id, currentIndex, onSelect) {
+    const input = document.getElementById(id);
+    const list = document.getElementById(`${id}-list`);
+    if (!input || !list) return;
+    let selectedIndex = currentIndex;
+    let highlighted = 0;
+
+    function renderOptions(query) {
+      const indices = filterSurahIndices(query).slice(0, 40);
+      if (!indices.length) {
+        list.innerHTML = `<div class="surah-combo-empty">لا توجد سورة بهذا الاسم</div>`;
+        list.hidden = false;
+        return;
+      }
+      highlighted = 0;
+      list.innerHTML = indices
+        .map((i, pos) => `<div class="surah-combo-option${pos === 0 ? " highlighted" : ""}" data-index="${i}">${SURAHS[i][0]}</div>`)
+        .join("");
+      list.hidden = false;
+    }
+    function commit(idx) {
+      selectedIndex = idx;
+      input.value = SURAHS[idx][0];
+      list.hidden = true;
+      onSelect(idx);
+    }
+
+    input.addEventListener("focus", () => { input.select(); renderOptions(""); });
+    input.addEventListener("input", () => renderOptions(input.value));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (list.hidden) { renderOptions(input.value); return; }
+        const opts = Array.from(list.querySelectorAll(".surah-combo-option"));
+        highlighted = Math.min(highlighted + 1, opts.length - 1);
+        opts.forEach((o, i) => o.classList.toggle("highlighted", i === highlighted));
+        opts[highlighted] && opts[highlighted].scrollIntoView({ block: "nearest" });
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        const opts = Array.from(list.querySelectorAll(".surah-combo-option"));
+        highlighted = Math.max(highlighted - 1, 0);
+        opts.forEach((o, i) => o.classList.toggle("highlighted", i === highlighted));
+        opts[highlighted] && opts[highlighted].scrollIntoView({ block: "nearest" });
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const opts = Array.from(list.querySelectorAll(".surah-combo-option"));
+        const target = opts[highlighted] || opts[0];
+        if (target) commit(Number(target.getAttribute("data-index")));
+      } else if (e.key === "Escape") {
+        list.hidden = true;
+        input.value = SURAHS[selectedIndex][0];
+        input.blur();
+      }
+    });
+    list.addEventListener("mousedown", (e) => {
+      const opt = e.target.closest(".surah-combo-option");
+      if (!opt) return;
+      e.preventDefault(); // keep focus so blur doesn't fire before the click is handled
+      commit(Number(opt.getAttribute("data-index")));
+    });
+    input.addEventListener("blur", () => {
+      // Small delay so a click/tap on an option (mousedown above) registers first.
+      setTimeout(() => {
+        list.hidden = true;
+        input.value = SURAHS[selectedIndex][0];
+      }, 150);
+    });
   }
 
   /* ---------------- End-date picker (هجري / ميلادي) for cyclic review ---------------- */
@@ -1612,11 +1747,11 @@
         <div class="field-row">
           <div class="field-group wide">
             <span>من سورة</span>
-            <select id="${prefix}review-from-surah">${surahOptionsHTML(r.fromSurah)}</select>
+            ${surahComboHTML(`${prefix}review-from-surah`, r.fromSurah)}
           </div>
           <div class="field-group wide">
             <span>إلى سورة</span>
-            <select id="${prefix}review-to-surah">${surahOptionsHTML(r.toSurah)}</select>
+            ${surahComboHTML(`${prefix}review-to-surah`, r.toSurah)}
           </div>
         </div>`;
     }
@@ -1726,8 +1861,8 @@
       document.getElementById(`${prefix}review-from-page`).oninput = (e) => { state.review.fromPage = e.target.value; debouncedInputChange(); };
       document.getElementById(`${prefix}review-to-page`).oninput = (e) => { state.review.toPage = e.target.value; debouncedInputChange(); };
     } else {
-      document.getElementById(`${prefix}review-from-surah`).onchange = (e) => { state.review.fromSurah = Number(e.target.value); onInputChange(); };
-      document.getElementById(`${prefix}review-to-surah`).onchange = (e) => { state.review.toSurah = Number(e.target.value); onInputChange(); };
+      bindSurahCombo(`${prefix}review-from-surah`, r.fromSurah, (idx) => { state.review.fromSurah = idx; onInputChange(); });
+      bindSurahCombo(`${prefix}review-to-surah`, r.toSurah, (idx) => { state.review.toSurah = idx; onInputChange(); });
     }
 
     if (r.cyclicMode) {
