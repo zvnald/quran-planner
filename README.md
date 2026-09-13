@@ -684,6 +684,32 @@
     if (fromP - 1 === start && fromP - 1 >= hardMin) return fromP - 1; // ينقصه صفحة واحدة ليكمل السورة لبدايتها
     return fromP;
   }
+  // يرجع نطاقات الصفحات الفعلية ليوم ما: يعتمد أولاً على day.ranges (مصفوفة {from,to} — تُستخدم في
+  // "الحفظ المعكوس" حين يغطي اليوم أكثر من نطاق منفصل)، ويرجع تلقائياً لزوج fromPage/toPage القديم
+  // لأي يوم آخر لا يحمل ranges (الحفظ الأمامي، المراجعة، إلخ). مصفوفة فارغة تعني يوماً بلا ورد صفحات.
+  function dayPageRanges(d) {
+    if (d && Array.isArray(d.ranges) && d.ranges.length) return d.ranges;
+    if (d && d.fromPage != null && d.toPage != null) return [{ from: d.fromPage, to: d.toPage }];
+    return [];
+  }
+  // تسمية نطاق واحد بصيغة كاملة: "صفحة 482" أو "من 467 إلى 470".
+  function formatPageRangeFull(r) {
+    return r.from === r.to ? `صفحة ${r.from}` : `من ${r.from} إلى ${r.to}`;
+  }
+  // تسمية نطاق واحد بصيغة مختصرة: "ص482" أو "467-470".
+  function formatPageRangeShort(r) {
+    return r.from === r.to ? `ص${r.from}` : `${r.from}-${r.to}`;
+  }
+  // تسمية يوم كامل (قد يضم أكثر من نطاق صفحات منفصل في الحفظ المعكوس) بالصيغة الكاملة.
+  function formatDayRangesFull(d) {
+    const ranges = dayPageRanges(d);
+    return ranges.map(formatPageRangeFull).join("، ثم ");
+  }
+  // تسمية يوم كامل بالصيغة المختصرة (تُستخدم في التقويم وجدول الخطة الشاملة).
+  function formatDayRangesShort(d) {
+    const ranges = dayPageRanges(d);
+    return ranges.map(formatPageRangeShort).join(" + ");
+  }
   function formatDate(d) {
     return d.toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" });
   }
@@ -1062,8 +1088,8 @@
     const limit = opts.limit || 14;
     const rangeLabelFn = opts.rangeLabelFn || ((d) => {
       if (d.isRest) return "يوم راحة";
-      if (d.isFilled || d.fromPage == null) return "✓ تمّ الختم";
-      return d.fromPage === d.toPage ? `صفحة ${d.fromPage}` : `من ${d.fromPage} إلى ${d.toPage}`;
+      if (d.isFilled || (d.fromPage == null && !(d.ranges && d.ranges.length))) return "✓ تمّ الختم";
+      return formatDayRangesFull(d);
     });
     const shown = days.slice(0, limit);
     const rows = shown.map((d) => {
@@ -1096,8 +1122,8 @@
     const labelFor = (d) => {
       if (!d) return "✓ اكتمل";
       if (d.isRest) return "راحة";
-      if (d.isFilled || d.fromPage == null) return "✓ تمّ";
-      return d.fromPage === d.toPage ? `ص${d.fromPage}` : `${d.fromPage}-${d.toPage}`;
+      if (d.isFilled || (d.fromPage == null && !(d.ranges && d.ranges.length))) return "✓ تمّ";
+      return formatDayRangesShort(d);
     };
     const shown = days.slice(0, limit);
     const rows = shown.map((d) => {
@@ -2115,15 +2141,14 @@
   // one place (e.g. 1-77 and 500-604) and the remaining gap(s) need to be filled in.
   // direction "forward": segments are walked in their given order; within a segment, pages are
   // counted upward (ascending) from its own beginning, day by day.
-  // direction "reverse": segments are walked starting from the LAST one (closest to Surat An-Nas)
-  // backward toward the first. Within a segment, the OVERALL trend across days is downward (toward
-  // lower pages, closer to Al-Fatihah) — but a surah is never split so that a day dips a few pages
-  // into the surah before it just to complete a quota; instead, once a surah's remaining pages (going
-  // down to its own beginning) are fewer than a full day's quota, that whole remainder becomes ONE
-  // clean day starting exactly "من بداية السورة" (from the surah's own beginning), and whatever extra
-  // pages are needed to complete that day's quota are pulled from the day(s) right before it — which
-  // are still inside the surah above, so they simply keep a little more of it instead of releasing it
-  // downward. Net effect: "من حيث ترتيب السور تنازلي، ومن حيث الصفحات كل سورة تُحسب من بدايتها تصاعدياً".
+  // direction "reverse" ("الحفظ المعكوس"): السّور تُطوى تنازلياً — من آخر سورة في المقطع الأقرب لسورة
+  // الناس رجوعاً نحو الفاتحة (مثلاً: فصلت ثم غافر) — بينما صفحات كل سورة على حدة تُحسب دائماً تصاعدياً
+  // ابتداءً من أول صفحة فيها. حصة اليوم رقم ثابت (quota) لا يتغيّر بحسب حدود السور: إن كانت الحصة أكبر
+  // مما تبقّى من السورة الحالية، يُستكمل أولاً ما تبقّى منها (تصاعدياً حتى آخر صفحة فيها)، ثم يُنتقل
+  // مباشرة للسورة السابقة ويُكمل الباقي من حصة اليوم من أول صفحة فيها تصاعدياً — وهكذا قد يغطي اليوم
+  // الواحد أكثر من نطاق صفحات منفصل دفعة واحدة (مثال: صفحة 482 من فصلت + من 467 إلى 470 من غافر).
+  // هذه النطاقات المتعددة تُعاد في day.ranges (مصفوفة مرتبة من {from,to})؛ وتبقى fromPage/toPage على
+  // كائن اليوم أيضاً (بداية أول نطاق ونهاية آخر نطاق) لأي كود قديم ما زال يتوقع زوجاً واحداً فقط.
   function buildSegmentedDailyAssignments(segments, totalDays, activeDaysList, startDateObj, direction) {
     const isReverse = direction === "reverse";
     const orderedSegments = isReverse ? segments.slice().reverse() : segments;
@@ -2136,43 +2161,55 @@
     }
     activeDaysCount = Math.max(activeDaysCount, 1);
 
+    // "الحفظ المعكوس": نبني سلفاً قائمة "كتل" مرتّبة بترتيب السير الفعلي الجديد — كل مقطع (segment)
+    // بترتيبه المعكوس أصلاً (orderedSegments)، وداخل كل مقطع كل سورة تظهر فيه من الأعلى صفحة بداية
+    // للأدنى، وكل كتلة تحمل صفحاتها الخاصة (من بداية السورة أو بداية المقطع أيهما أعلى، تصاعدياً حتى
+    // نهاية السورة أو نهاية المقطع أيهما أدنى). المشي لاحقاً على هذه القائمة يوماً بيوم — بأخذ quota
+    // صفحة من حيث توقفنا تماماً، عابرين حدود الكتل عند الحاجة دون أي تقريب أو محاذاة اصطناعية — هو ما
+    // يُنتج بالضبط منطق "إكمال بقية السورة الحالية ثم الانتقال لبداية السورة السابقة".
+    function buildReverseBlocks() {
+      const blocks = [];
+      orderedSegments.forEach((seg) => {
+        let idx = surahIndexForPage(seg.to);
+        while (true) {
+          const sStart = surahStartPageOf(idx);
+          const sEnd = surahEndPage(idx);
+          const blockFrom = Math.max(sStart, seg.from);
+          const blockTo = Math.min(sEnd, seg.to);
+          if (blockTo >= blockFrom) blocks.push({ from: blockFrom, to: blockTo });
+          if (sStart <= seg.from || idx === 0) break;
+          idx--;
+        }
+      });
+      return blocks;
+    }
+
     const days = [];
     let assignedSoFar = 0;
     let activeSeen = 0;
-    let segIdx = 0;
-    let cursor = orderedSegments.length ? (isReverse ? orderedSegments[0].to : orderedSegments[0].from) : 1;
-    let segStartDayIdx = 0; // أول index في days[] يخص المقطع الحالي — لا نسحب صفحات من قبله
 
-    // يسحب "need" صفحة من نهاية الأيام المدفوعة سابقاً (بترتيب عكسي) لإعطائها لليوم الحالي، بدون
-    // تجاوز بداية المقطع الحالي. يرجع كمية ما تم سحبه فعلياً (قد تكون أقل من المطلوب لو الأيام السابقة
-    // لا تكفي، كأن يكون هذا أول يوم في المقطع).
-    // يسحب "need" صفحة من نهاية آخر يوم مدفوع فقط (بدون تسلسل رجوعاً لأكثر من يوم، حتى لا تتراكم
-    // التعديلات وتتضخم بعض الأيام) — لو ذلك اليوم غير كافٍ يُؤخذ منه ما يتوفر فقط وتُقبل حصة اليوم
-    // الحالي أقل من الكامل (يحدث فقط في أول يوم من مقطع/سورة قصيرة جداً).
-    function reclaimFromTail(need) {
-      for (let k = days.length - 1; k >= segStartDayIdx; k--) {
-        const d = days[k];
-        if (d.isRest || d.fromPage == null) continue;
-        const size = d.toPage - d.fromPage + 1;
-        const give = Math.min(size, need);
-        d.fromPage += give;
-        if (d.fromPage > d.toPage) { d.fromPage = null; d.toPage = null; d.isFilled = true; }
-        return give;
-      }
-      return 0;
-    }
+    // متغيّرات مسار "الحفظ الأمامي" (forward) فقط
+    let segIdx = 0;
+    let cursor = orderedSegments.length ? orderedSegments[0].from : 1;
+
+    // متغيّرات مسار "الحفظ المعكوس" (reverse) فقط
+    const blocks = isReverse ? buildReverseBlocks() : null;
+    let blockIdx = 0;
+    let blockCursor = isReverse && blocks.length ? blocks[0].from : 0;
+
+    const isDone = () => (isReverse ? blockIdx >= blocks.length : segIdx >= orderedSegments.length);
 
     // نطاق أمان: أحياناً تحتاج المحاذاة على حدود السور أياماً إضافية قليلة عن التقدير الأصلي (لأن بعض
     // الأيام تكون أقصر من الحصة الكاملة كي تنتهي بالضبط عند بداية سورة). لذلك لا نتوقف عند totalDays
     // بالضبط إن تبقّت صفحات لم تُوزّع بعد — نُكمل بأيام إضافية (ضمن حدّ أقصى معقول) بدل أن تُفقد صفحات.
     const maxIterations = totalDays + Math.ceil(totalPagesToCover / 2) + 30;
-    for (let i = 0; i < maxIterations && (i < totalDays || segIdx < orderedSegments.length); i++) {
+    for (let i = 0; i < maxIterations && (i < totalDays || !isDone()); i++) {
       const date = addDays(startDateObj, i);
       const dow = (startDateObj.getDay() + 1 + i) % 7;
       const isRest = i < totalDays && !isDayActive(WEEK_DAYS[dow], activeDaysList);
       if (isRest) { days.push({ date, isRest: true }); continue; }
 
-      if (segIdx >= orderedSegments.length) {
+      if (isDone()) {
         days.push({ date, isRest: false, fromPage: null, toPage: null, isFilled: true });
         activeSeen++;
         continue;
@@ -2182,40 +2219,34 @@
       const pagesRemaining = Math.max(totalPagesToCover - assignedSoFar, 1);
       const quota = Math.max(Math.round(pagesRemaining / Math.max(daysRemainingActive, 1)), 1);
 
-      const seg = orderedSegments[segIdx];
-      let fromP, toP;
-
       if (isReverse) {
-        const idx = surahIndexForPage(cursor);
-        const sStart = Math.max(surahStartPageOf(idx), seg.from);
-        const surahSize = surahEndPage(idx) - surahStartPageOf(idx) + 1;
-        const rawFrom = Math.max(cursor - quota + 1, seg.from);
-        // لا نحاول "تنظيف" حدود السور القصيرة جداً (أقصر من نصف الحصة اليومية تقريباً) لأن ذلك
-        // يعني تصحيحاً شبه يومي في مناطق فيها عدة سور قصيرة متتالية (كجزء عمّ) فيتراكم بشكل غير مستقر؛
-        // هناك يُترك القص الطبيعي كما هو (نزول عادي بلا محاذاة خاصة).
-        if (rawFrom >= sStart || surahSize < Math.ceil(quota / 2)) {
-          fromP = rawFrom;
-          toP = cursor;
-        } else {
-          // إكمال ما تبقى من هذه السورة كيوم نظيف يبدأ من بدايتها، وسحب الفرق من اليوم السابق مباشرة
-          // (الذي ما زال داخل السورة الأعلى) بدل النزول لسورة أدنى لإكمال الحصة.
-          const remainInSurah = cursor - sStart + 1;
-          const deficit = quota - remainInSurah;
-          const reclaimed = deficit > 0 ? reclaimFromTail(deficit) : 0;
-          fromP = sStart;
-          toP = cursor + reclaimed;
-          assignedSoFar -= reclaimed;
+        // نأخذ quota صفحة بدءاً من موضع التوقف الحالي (blockCursor داخل الكتلة blocks[blockIdx])؛ إن لم
+        // تكفِ الكتلة الحالية نُكمل الباقي من الكتلة التالية مباشرة (وهي دوماً بداية السورة السابقة
+        // تصاعدياً) — فيتجمّع لليوم أكثر من نطاق صفحات منفصل عند الحاجة.
+        let need = quota;
+        const ranges = [];
+        while (need > 0 && blockIdx < blocks.length) {
+          const b = blocks[blockIdx];
+          const take = Math.min(need, b.to - blockCursor + 1);
+          const from = blockCursor;
+          const to = blockCursor + take - 1;
+          ranges.push({ from, to });
+          blockCursor += take;
+          need -= take;
+          assignedSoFar += take;
+          if (blockCursor > b.to) { blockIdx++; if (blocks[blockIdx]) blockCursor = blocks[blockIdx].from; }
         }
-        const take = toP - fromP + 1;
-        assignedSoFar += take;
-        cursor = fromP - 1;
-        if (cursor < seg.from) { segIdx++; segStartDayIdx = days.length + 1; if (orderedSegments[segIdx]) cursor = orderedSegments[segIdx].to; }
-        days.push({ date, isRest: false, fromPage: fromP, toPage: toP, isFilled: false });
+        days.push({
+          date, isRest: false, ranges,
+          fromPage: ranges[0].from, toPage: ranges[ranges.length - 1].to,
+          isFilled: false,
+        });
       } else {
+        const seg = orderedSegments[segIdx];
         const segRemaining = seg.to - cursor + 1;
         const take0 = Math.max(Math.min(quota, segRemaining), 1);
-        fromP = cursor;
-        toP = cursor + take0 - 1;
+        let fromP = cursor;
+        let toP = cursor + take0 - 1;
         if (toP < seg.to) toP = nudgeForwardBoundary(toP, seg.to); // محاذاة على نهاية سورة إن أمكن بفارق صفحة واحدة
         const take = toP - fromP + 1;
         cursor = toP + 1;
@@ -2315,29 +2346,28 @@
     const limit = Math.min(beforeIndex, memoDays.length);
     for (let i = 0; i < limit; i++) {
       const d = memoDays[i];
-      if (d && !d.isRest && !d.isFilled && d.fromPage != null && d.toPage != null) {
-        total += d.toPage - d.fromPage + 1;
+      if (d && !d.isRest && !d.isFilled) {
+        dayPageRanges(d).forEach((r) => { total += r.to - r.from + 1; });
       }
     }
     return total;
   }
 
-  // Returns the actual page range (min..max page number) the memorization plan (memoDays) has
-  // covered strictly before calendar-day index `beforeIndex`. Unlike a simple page COUNT, this
-  // captures exactly where the newly memorized pages sit in the book — essential for "reverse"
-  // memorization (from the end backward) or when the memorized pages land nowhere near the
-  // review range's own upper bound. Returns null if nothing has been memorized yet.
-  function getMemoRangeMemorizedBefore(memoDays, beforeIndex) {
-    let minP = null, maxP = null;
+  // Returns the actual page segments the memorization plan (memoDays) has covered strictly before
+  // calendar-day index `beforeIndex`, merged into the minimum number of {from,to} blocks. Unlike a
+  // simple page COUNT, this captures exactly where the newly memorized pages sit in the book —
+  // essential for "reverse" memorization (surahs walked from the end backward, pages inside each
+  // surah ascending) where a single day can even cover two disjoint page ranges at once (finishing
+  // one surah + starting the previous one) — so a plain min/max bounding box would wrongly include
+  // pages that fall in between but were NOT actually memorized yet. Returns [] if nothing memorized.
+  function getMemoSegmentsMemorizedBefore(memoDays, beforeIndex) {
+    const raw = [];
     const limit = Math.min(beforeIndex, memoDays.length);
     for (let i = 0; i < limit; i++) {
       const d = memoDays[i];
-      if (d && !d.isRest && !d.isFilled && d.fromPage != null && d.toPage != null) {
-        if (minP === null || d.fromPage < minP) minP = d.fromPage;
-        if (maxP === null || d.toPage > maxP) maxP = d.toPage;
-      }
+      if (d && !d.isRest && !d.isFilled) raw.push(...dayPageRanges(d));
     }
-    return minP === null ? null : { from: minP, to: maxP };
+    return raw.length ? mergeReviewSegments(raw) : [];
   }
 
   // Merges a list of {from,to} page segments, combining any that touch or overlap into one
@@ -2372,8 +2402,8 @@
     while (offset < totalDays) {
       const chunkLen = Math.min(cycleDays, totalDays - offset);
       const chunkStart = addDays(startDateObj, offset);
-      const newRange = getMemoRangeMemorizedBefore(memoDays, offset);
-      if (newRange) segments = mergeReviewSegments([...segments, newRange]);
+      const newSegs = getMemoSegmentsMemorizedBefore(memoDays, offset);
+      if (newSegs.length) segments = mergeReviewSegments([...segments, ...newSegs]);
       const chunkDays = buildSegmentedDailyAssignments(segments, chunkLen, activeDaysList, chunkStart, "forward");
       days.push(...chunkDays);
       offset += chunkLen;
@@ -2386,8 +2416,8 @@
   // block, or multiple entries if some newly memorized pages ended up unrelated to the original range.
   function getGrowingReviewFinalSegments(initialFrom, initialTo, memoDays) {
     let segments = [{ from: initialFrom, to: initialTo }];
-    const finalRange = getMemoRangeMemorizedBefore(memoDays, memoDays.length);
-    if (finalRange) segments = mergeReviewSegments([...segments, finalRange]);
+    const finalSegs = getMemoSegmentsMemorizedBefore(memoDays, memoDays.length);
+    if (finalSegs.length) segments = mergeReviewSegments([...segments, ...finalSegs]);
     return segments;
   }
 
@@ -2628,13 +2658,13 @@
           <span class="cal-date-num">${dnum}</span>
           <span class="cal-task cal-task-rest">يوم راحة</span>
         </div>`;
-      } else if (a.isFilled || a.fromPage == null) {
+      } else if (a.isFilled || (a.fromPage == null && !(a.ranges && a.ranges.length))) {
         cells += `<div class="cal-cell cal-done">
           <span class="cal-date-num">${dnum}</span>
           <span class="cal-task">✓ تمّ الختم</span>
         </div>`;
       } else {
-        const label = a.fromPage === a.toPage ? `صفحة ${a.fromPage}` : `من ${a.fromPage} إلى ${a.toPage}`;
+        const label = formatDayRangesFull(a);
         cells += `<div class="cal-cell">
           <span class="cal-date-num">${dnum}</span>
           <span class="cal-task">${label}</span>
@@ -2692,12 +2722,10 @@
       } else if (memoDay.isRest) {
         memoLabel = "راحة حفظ";
         memoIsRest = true;
-      } else if (memoDay.isFilled || memoDay.fromPage == null) {
+      } else if (memoDay.isFilled || (memoDay.fromPage == null && !(memoDay.ranges && memoDay.ranges.length))) {
         memoLabel = "✓ تمّ الختم";
       } else {
-        memoLabel = memoDay.fromPage === memoDay.toPage
-          ? `حفظ: ص${memoDay.fromPage}`
-          : `حفظ: ${memoDay.fromPage}-${memoDay.toPage}`;
+        memoLabel = `حفظ: ${formatDayRangesShort(memoDay)}`;
       }
 
       const reviewDay = a.review;
